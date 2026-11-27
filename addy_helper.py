@@ -10,6 +10,7 @@ CARA PAKAI UTAMA (satu perintah, ada menu interaktif):
         2. Start       — buat alias acak + tunggu pesan masuk
         3. Add data    — tambah akun Gmail baru (input email + app password)
         4. Set key     — input key API addy.io (disimpan di config.json)
+        5. Inbox       — diagnosis: lihat pesan terakhir di inbox asli (IMAP)
         0. Exit        — keluar
 
   Command lanjutan (CLI) tetap tersedia:
@@ -35,6 +36,7 @@ Contoh:
 """
 import argparse
 import getpass
+import imaplib
 import json
 import os
 import sys
@@ -117,6 +119,7 @@ def _menu_box():
         ("2", "Start", "Buat alias + tunggu pesan"),
         ("3", "Add data", "Tambah akun baru"),
         ("4", "Set key", "Input key API addy.io"),
+        ("5", "Inbox", "Diagnosis inbox asli"),
         ("0", "Exit", "Keluar dari script"),
     ]
     print(c("┌" + "─" * width + "┐", CYAN))
@@ -278,6 +281,90 @@ def _get_accounts():
     return []
 
 
+def _imap_credentials():
+    """Baca GMAIL_EMAIL + GMAIL_APP_PASSWORD dari config.json atau .env."""
+    cfg = _load_config()
+    email = None
+    pw = None
+    if cfg:
+        email = cfg.get("real_inbox") or None
+        if not email and cfg.get("accounts"):
+            email = cfg["accounts"][0].get("email")
+        if email and cfg.get("accounts"):
+            for a in cfg["accounts"]:
+                if a.get("email") == email:
+                    pw = a.get("app_password")
+                    break
+        if not pw:
+            # first account as fallback
+            if cfg.get("accounts"):
+                email = cfg["accounts"][0].get("email")
+                pw = cfg["accounts"][0].get("app_password")
+    if not email:
+        email = _read_env()
+    if not pw:
+        pw = _read_env_value("GMAIL_APP_PASSWORD")
+    return email, pw
+
+
+def _read_env_value(key):
+    try:
+        with open(".env", "r") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith(f"{key}=") and not line.startswith("#"):
+                    return line.split("=", 1)[1].strip()
+    except FileNotFoundError:
+        pass
+    return None
+
+
+def _imap_list_recent(limit=15):
+    """Diagnosis: tampilkan pesan-pesan terakhir di inbox asli via IMAP langsung."""
+    email, pw = _imap_credentials()
+    if not email or not pw:
+        _die("EMAIL ASLI atau App Password belum terisi. Lengkapi via menu 3/4.")
+    user, _ = email.split("@", 1)
+    print(c(f"\n⏳  Menghubungi inbox asli {email} via IMAP...", CYAN))
+    mail = imaplib.IMAP4_SSL("imap.gmail.com", 993, timeout=30)
+    try:
+        mail.login(email, pw)
+        mail.select("INBOX")
+        _, data = mail.search(None, "ALL")
+        uids = list(data[0].split()) if data[0] else []
+        if not uids:
+            print(c("(inbox asli kosong — tidak ada pesan sama sekali)", DIM))
+            return
+        uids = uids[-limit:]
+        print(c(f"\n{len(uids)} pesan terakhir di inbox asli:\n", BOLD + GREEN))
+        for uid in reversed(uids):
+            _, msg_data = mail.fetch(uid, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])")
+            if not msg_data or not msg_data[0]:
+                continue
+            raw = msg_data[0][1].decode("utf-8", "replace")
+            from_v = to_v = sub_v = ""
+            for line in raw.splitlines():
+                if line.lower().startswith("from:"):
+                    from_v = line[5:].strip()
+                elif line.lower().startswith("subject:"):
+                    sub_v = line[8:].strip()
+                elif line.lower().startswith("date:"):
+                    to_v = line[5:].strip()
+            print(f"  {c('Dari   :', BOLD)} {c(from_v, CYAN)}")
+            print(f"  {c('Subjek :', BOLD)} {c(sub_v or '(tanpa subjek)', YELLOW)}")
+            print(f"  {c('Tanggal:', BOLD)} {c(to_v, DIM)}")
+            print()
+    except imaplib.IMAP4.error as e:
+        _die(f"IMAP login gagal: {e}\nPeriksa Email + App Password (16 karakter tanpa spasi).")
+    except Exception as e:
+        _die(f"IMAP gagal: {e}")
+    finally:
+        try:
+            mail.logout()
+        except Exception:
+            pass
+
+
 def _create_alias():
     return _request("POST", f"{BASE}/api/email?name=addy.io", data={})
 
@@ -400,6 +487,11 @@ def cmd_check(args):
         _print_messages(messages)
     except ApiError as e:
         _die(str(e))
+
+
+def cmd_inbox(_args):
+    """Diagnosis: tampilkan pesan terakhir di inbox asli (IMAP langsung)."""
+    _imap_list_recent(15)
 
 
 def cmd_watch(args):
@@ -612,11 +704,13 @@ def menu_loop():
             cmd_add(None)
         elif choice == "4":
             cmd_key(None)
+        elif choice == "5":
+            cmd_inbox(None)
         elif choice == "0":
             print(c("✓ Terima kasih, exit.", GREEN))
             break
         else:
-            print(c("[ERROR] Pilihan tidak valid (0/1/2/3/4).", RED))
+            print(c("[ERROR] Pilihan tidak valid (0/1/2/3/4/5).", RED))
 
 
 def main():
@@ -630,6 +724,8 @@ def main():
     sub.add_parser("add", help="Tambah akun Gmail baru ke config.json (input email + app password)").set_defaults(func=cmd_add)
 
     sub.add_parser("key", help="Input key API addy.io ke config.json").set_defaults(func=cmd_key)
+
+    sub.add_parser("inbox", help="Diagnosis: lihat pesan terakhir di inbox asli").set_defaults(func=cmd_inbox)
 
     pr = sub.add_parser("run", help="Satu kali jalan: buat alias, tampilkan, lalu tunggu pesan")
     pr.add_argument("--timeout", type=int, default=10, help="Timeout detik (default 10)")
