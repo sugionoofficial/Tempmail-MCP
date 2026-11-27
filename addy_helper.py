@@ -17,7 +17,7 @@ Perintah:
 
   python addy_helper.py watch <email> <token> [--timeout 10]
       Polling otomatis selama --timeout detik. Jika ada pesan masuk, langsung
-      menampilkan isi pesan dan berhenti. Tidak ada output spam selama polling.
+      menampilkan isi pesan dan berhenti.
 
 Contoh:
   python addy_helper.py run
@@ -28,12 +28,94 @@ import argparse
 import json
 import os
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
 BASE = "http://127.0.0.1:8000"
+
+# --- ANSI colors ---------------------------------------------------------
+RESET = "\033[0m"
+BOLD = "\033[1m"
+DIM = "\033[2m"
+RED = "\033[31m"
+GREEN = "\033[32m"
+YELLOW = "\033[33m"
+BLUE = "\033[34m"
+MAGENTA = "\033[35m"
+CYAN = "\033[36m"
+WHITE = "\033[37m"
+
+_SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+
+def c(text, color):
+    return f"{color}{text}{RESET}"
+
+
+def spinner_frame(i):
+    return _SPINNER[i % len(_SPINNER)]
+
+
+def clear_line():
+    sys.stdout.write("\r\033[K")
+    sys.stdout.flush()
+
+
+def banner(title):
+    line = "═" * 46
+    print(c(line, DIM))
+    print(c(f"  {title}", BOLD + CYAN))
+    print(c(line, DIM))
+
+
+def info_box(rows):
+    """Tampilkan baris-baris dalam box rapi."""
+    width = 44
+    print(c("┌" + "─" * width + "┐", DIM))
+    for label, value in rows:
+        # label kanan, value kiri
+        pad = max(1, width - len(label) - 2)
+        print(c("│", DIM) + c(f" {label} ", BOLD) + c(" " * pad, DIM) + c(f"{value}", DIM) + c("│", DIM))
+    print(c("└" + "─" * width + "┘", DIM))
+
+
+def _with_spinner(text, func):
+    """Jalankan func di thread sambil menampilkan spinner animasi."""
+    result = [None]
+    exc = [None]
+
+    def target():
+        try:
+            result[0] = func()
+        except Exception as e:
+            exc[0] = e
+
+    t = threading.Thread(target=target)
+    t.start()
+    i = 0
+    while t.is_alive():
+        clear_line()
+        sys.stdout.write(f"{c(spinner_frame(i), CYAN)} {text}")
+        sys.stdout.flush()
+        time.sleep(0.08)
+        i += 1
+    clear_line()
+    t.join()
+    if exc[0]:
+        raise exc[0]
+    return result[0]
+
+
+class ApiError(Exception):
+    pass
+
+
+def _die(msg):
+    print(c(f"[ERROR] {msg}", RED), file=sys.stderr)
+    sys.exit(1)
 
 
 def _request(method, url, data=None):
@@ -45,12 +127,9 @@ def _request(method, url, data=None):
             return json.loads(resp.read().decode() or "null")
     except urllib.error.HTTPError as e:
         detail = e.read().decode()
-        print(f"[ERROR] HTTP {e.code}: {detail}", file=sys.stderr)
-        sys.exit(1)
+        raise ApiError(f"HTTP {e.code}: {detail}")
     except urllib.error.URLError as e:
-        print(f"[ERROR] Tidak bisa mencapai server: {e}", file=sys.stderr)
-        print("Pastikan server jalan: python -m src.main", file=sys.stderr)
-        sys.exit(1)
+        raise ApiError(f"Tidak bisa mencapai server: {e}\nPastikan server jalan: python -m src.main")
 
 
 def _read_env():
@@ -66,58 +145,8 @@ def _read_env():
     return None
 
 
-def cmd_gen(_args):
-    print("Membuat alias acak baru...")
-    result = _request("POST", f"{BASE}/api/email?name=addy.io", data={})
-    email = result["email"]
-    token = result["token"]
-    real = _read_env()
-    print("\n===== ALIAS BUKU =====")
-    print(f"EMAIL   : {email}")
-    print(f"TOKEN   : {token}")
-    print(f"PROVIDER: {result['provider']}")
-    if real:
-        print(f"EMAIL ASLI (tujuan) : {real}")
-    print("========================")
-    print(f"\n[COPY] {email}")
-    print("\nGunakan EMAIL ini untuk mendaftar. Pesan/kode verifikasi akan")
-    print("diteruskan ke inbox asli Anda. Cek dengan:")
-    print(f'  python addy_helper.py check {email} {token}')
-    print(f'  python addy_helper.py watch {email} {token}')
-
-
-def cmd_run(args):
-    """Satu kali jalan: buat alias -> tampilkan alias + email asli -> tunggu pesan."""
-    print("Membuat alias acak baru...")
-    result = _request("POST", f"{BASE}/api/email?name=addy.io", data={})
-    email = result["email"]
-    token = result["token"]
-    real = _read_env()
-
-    print("\n===== ALIAS & EMAIL ASLI =====")
-    print(f"ALIAS (dipakai daftar) : {email}")
-    print(f"TOKEN                  : {token}")
-    print(f"EMAIL ASLI (tujuan)    : {real or '(tidak terdeteksi — cek .env GMAIL_EMAIL)'}")
-    print(f"PROVIDER               : {result['provider']}")
-    print("==============================")
-    print(f"\n[COPY] {email}")
-    print(f"Daftar website menggunakan ALIAS di atas.")
-    print(f"Kode verifikasi akan diteruskan ke EMAIL ASLI: {real or '(lihat .env)'}.")
-
-    print(f"\nMenunggu pesan masuk (max {args.timeout}s)...")
-    start = time.time()
-    try:
-        while time.time() - start < args.timeout:
-            messages = _fetch_messages(email, token)
-            if messages:
-                _print_messages(messages)
-                print("\n[Selesai] Pesan masuk — script berhenti.")
-                return
-            time.sleep(args.interval)
-    except KeyboardInterrupt:
-        print("\nBerhenti.")
-    print(f"[Timeout] Tidak ada pesan dalam {args.timeout}s.")
-    print(f"Coba cek manual: python addy_helper.py check {email} {token}")
+def _create_alias():
+    return _request("POST", f"{BASE}/api/email?name=addy.io", data={})
 
 
 def _fetch_messages(email, token):
@@ -127,42 +156,144 @@ def _fetch_messages(email, token):
 
 def _print_messages(messages):
     if not messages:
-        print("(belum ada pesan masuk)")
+        print(c("(belum ada pesan masuk)", DIM))
         return
-    print(f"{len(messages)} pesan ditemukan:\n")
+    print(c(f"{len(messages)} pesan ditemukan\n", BOLD + GREEN))
     for i, m in enumerate(messages, 1):
-        print(f"--- Pesan {i} ---")
-        print(f"Dari     : {m.get('from_addr')}")
-        print(f"Subjek   : {m.get('subject')}")
+        print(c(f"┌─ Pesan {i} " + "─" * 30, DIM))
+        print(f"  {c('Dari  :', BOLD)} {c(m.get('from_addr') or '', CYAN)}")
+        print(f"  {c('Subjek:', BOLD)} {c(m.get('subject') or '(tanpa subjek)', YELLOW)}")
         body = m.get("body_text") or m.get("body_html") or ""
-        print(f"Isi      : {body[:500]}{'...' if len(body) > 500 else ''}")
-        print(f"ID       : {m.get('id')}")
+        body_show = body[:600] + ("..." if len(body) > 600 else "")
+        print(f"  {c('Isi   :', BOLD)} {body_show}")
+        print(f"  {c('ID    :', BOLD)} {c(m.get('id') or '', DIM)}")
+        print(c("└" + "─" * 40, DIM))
         print()
 
 
+def cmd_gen(_args):
+    try:
+        print(c("⏳  Membuat alias acak baru...", CYAN))
+        result = _with_spinner("Membuat alias acak baru", _create_alias)
+        email = result["email"]
+        token = result["token"]
+        real = _read_env()
+        print()
+        banner("ALIAS BUKU")
+        rows = [
+            ("EMAIL", c(email, BOLD + GREEN)),
+            ("TOKEN", c(token, DIM)),
+            ("PROVIDER", result["provider"]),
+        ]
+        if real:
+            rows.append(("EMAIL ASLI", c(real, YELLOW)))
+        info_box(rows)
+        print()
+        print(c(f"[COPY] {email}", BOLD + GREEN))
+        print()
+        print(c("Gunakan EMAIL ini untuk mendaftar. Cek pesan dengan:", DIM))
+        print(f"  python addy_helper.py check {email} {token}")
+        print(f"  python addy_helper.py watch {email} {token}")
+    except ApiError as e:
+        clear_line()
+        _die(str(e))
+
+
+def cmd_run(args):
+    try:
+        banner("GENERATE ALIAS")
+        print(c("⏳  Membuat alias acak baru...", CYAN))
+        result = _with_spinner("Membuat alias acak baru", _create_alias)
+        email = result["email"]
+        token = result["token"]
+        real = _read_env()
+
+        print()
+        banner("ALIAS & EMAIL ASLI")
+        rows = [
+            ("ALIAS", c(email, BOLD + GREEN)),
+            ("TOKEN", c(token, DIM)),
+            ("EMAIL ASLI", c(real or "(tidak terdeteksi)", YELLOW)),
+            ("PROVIDER", result["provider"]),
+        ]
+        info_box(rows)
+        print()
+        print(c(f"[COPY] {email}", BOLD + GREEN))
+        print(c(f"Daftar website menggunakan ALIAS di atas.", DIM))
+        print(c(f"Kode verifikasi diteruskan ke EMAIL ASLI: {real or '(lihat .env)'}", DIM))
+        print()
+
+        print(c(f"⏳  Menunggu pesan masuk (max {args.timeout}s)...", CYAN))
+        start = time.time()
+        i = 0
+        try:
+            while time.time() - start < args.timeout:
+                elapsed = int(time.time() - start)
+                clear_line()
+                sys.stdout.write(f"{c(spinner_frame(i), CYAN)} Menunggu pesan... {elapsed}s / {args.timeout}s")
+                sys.stdout.flush()
+                messages = _fetch_messages(email, token)
+                if messages:
+                    clear_line()
+                    print()
+                    _print_messages(messages)
+                    print(c("✓  Pesan masuk — script berhenti.", BOLD + GREEN))
+                    return
+                time.sleep(args.interval)
+                i += 1
+        except KeyboardInterrupt:
+            clear_line()
+            print(c("\nBerhenti.", YELLOW))
+        clear_line()
+        print(c(f"✗  [Timeout] Tidak ada pesan dalam {args.timeout}s.", YELLOW))
+        print(c(f"Coba cek manual: python addy_helper.py check {email} {token}", DIM))
+    except ApiError as e:
+        clear_line()
+        _die(str(e))
+
+
 def cmd_check(args):
-    messages = _fetch_messages(args.email, args.token)
-    _print_messages(messages)
+    try:
+        messages = _fetch_messages(args.email, args.token)
+        _print_messages(messages)
+    except ApiError as e:
+        _die(str(e))
 
 
 def cmd_watch(args):
-    print(f"Menunggu pesan untuk {args.email} (max {args.timeout}s)...")
-    start = time.time()
     try:
-        while time.time() - start < args.timeout:
-            messages = _fetch_messages(args.email, args.token)
-            if messages:
-                _print_messages(messages)
-                print("\n[Selesai] Pesan masuk — script berhenti.")
-                return
-            time.sleep(args.interval)
-    except KeyboardInterrupt:
-        print("\nBerhenti.")
-    print(f"[Timeout] Tidak ada pesan dalam {args.timeout}s.")
+        print(c(f"⏳  Menunggu pesan untuk {args.email} (max {args.timeout}s)...", CYAN))
+        start = time.time()
+        i = 0
+        try:
+            while time.time() - start < args.timeout:
+                elapsed = int(time.time() - start)
+                clear_line()
+                sys.stdout.write(f"{c(spinner_frame(i), CYAN)} Menunggu pesan... {elapsed}s / {args.timeout}s")
+                sys.stdout.flush()
+                messages = _fetch_messages(args.email, args.token)
+                if messages:
+                    clear_line()
+                    print()
+                    _print_messages(messages)
+                    print(c("✓  Pesan masuk — script berhenti.", BOLD + GREEN))
+                    return
+                time.sleep(args.interval)
+                i += 1
+        except KeyboardInterrupt:
+            clear_line()
+            print(c("\nBerhenti.", YELLOW))
+        clear_line()
+        print(c(f"✗  [Timeout] Tidak ada pesan dalam {args.timeout}s.", YELLOW))
+    except ApiError as e:
+        clear_line()
+        _die(str(e))
 
 
 def main():
-    p = argparse.ArgumentParser(description="Helper addy.io untuk Tempmail-MCP")
+    p = argparse.ArgumentParser(
+        description=c("Helper addy.io untuk Tempmail-MCP", BOLD + CYAN)
+    )
     sub = p.add_subparsers(dest="command", required=True)
 
     sub.add_parser("gen", help="Membuat alias acak baru").set_defaults(func=cmd_gen)
