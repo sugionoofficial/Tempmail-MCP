@@ -186,7 +186,10 @@ async def delete_email(
 ):
     """Delete the temporary email account."""
     account = EmailAccount(email=email, token=token, provider=provider.name)
-    success = await provider.delete_email(account)
+    try:
+        success = await provider.delete_email(account)
+    except Exception as e:
+        raise HTTPException(502, f"Provider error: {e}")
     if not success:
         raise HTTPException(502, "Provider failed to delete the email")
     return {"deleted": True}
