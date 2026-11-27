@@ -86,6 +86,42 @@ def banner(title):
     print(c(line, DIM))
 
 
+def _header_block():
+    """Blok header keren yang muncul di awal."""
+    width = 56
+    top = c("╔" + "═" * width + "╗", MAGENTA)
+    bottom = c("╚" + "═" * width + "╝", MAGENTA)
+    line1 = ("  ADY.IO HELPER").ljust(width)
+    line2 = ("  Tempmail-MCP · Menu Interaktif").ljust(width)
+    print(top)
+    print(c("║", MAGENTA) + c(line1, BOLD + CYAN) + c("║", MAGENTA))
+    print(c("║", MAGENTA) + c(line2, DIM) + c("║", MAGENTA))
+    print(bottom)
+
+
+def _menu_box():
+    """Menu box berbingkai yang rapi."""
+    width = 56
+    rows = [
+        ("1", "Check data", "Tampilkan data akun"),
+        ("2", "Start", "Buat alias + tunggu pesan"),
+        ("3", "Add data", "Tambah akun baru"),
+        ("0", "Exit", "Keluar dari script"),
+    ]
+    print(c("┌" + "─" * width + "┐", CYAN))
+    title = "  MENU  ".ljust(width)
+    print(c("│", CYAN) + c(title, BOLD + CYAN) + c("│", CYAN))
+    print(c("├" + "─" * width + "┤", CYAN))
+    for num, name, desc in rows:
+        label = f"[ {num} ]  {name}"
+        gap = width - len(label) - len(desc)
+        if gap < 2:
+            gap = 2
+        content = c(label, BOLD + CYAN) + " " * gap + c(desc, DIM)
+        print(c("│", CYAN) + content + c("│", CYAN))
+    print(c("└" + "─" * width + "┘", CYAN))
+
+
 def info_box(rows):
     """Tampilkan baris-baris dalam box rapi."""
     width = 44
@@ -430,12 +466,10 @@ def menu_loop():
     _clear_screen()
     while True:
         print()
-        banner("MENU ADY.IO")
-        print("  " + c("1. Check data", CYAN) + "   — tampilkan data akun")
-        print("  " + c("2. Start", CYAN) + "        — buat alias + tunggu pesan")
-        print("  " + c("3. Add data", CYAN) + "   — tambah akun baru")
-        print("  " + c("0. Exit", CYAN))
-        choice = input(c("\nPilih menu: ", BOLD)).strip()
+        _header_block()
+        print()
+        _menu_box()
+        choice = input(c("\n  ❯ Pilih menu: ", BOLD)).strip()
 
         if choice == "1":
             _show_data()
