@@ -3,31 +3,34 @@
 Helper untuk provider addy.io pada Tempmail-MCP.
 Tidak perlu install library tambahan (hanya stdlib Python).
 
-Perintah:
+CARA PAKAI UTAMA (satu perintah, ada menu interaktif):
+  python addy_helper.py
+      Membuka menu loop dengan opsi:
+        1. Check data  — tampilkan data akun (lalu kembali ke menu)
+        2. Start       — buat alias acak + tunggu pesan masuk
+        3. Add data    — tambah akun Gmail baru (input email + app password)
+        0. Exit        — keluar
+
+  Command lanjutan (CLI) tetap tersedia:
   python addy_helper.py add
-      Menambah akun Gmail baru ke config.json via input: masukkan Email Gmail
-      dan App Password (input tidak tampak), lalu Enter. Akun otomatis disimpan.
-      Tidak perlu edit config.json/.env manual.
+      Menambah akun Gmail baru ke config.json via input (tanpa menu).
 
   python addy_helper.py run [--timeout 10]
-      SATU KALI JALAN: buat alias acak, tampilkan alias + EMAIL ASLI (inbox
-      tujuan forward), lalu otomatis tunggu pesan masuk selama --timeout detik.
-      Jika pesan masuk, langsung menampilkan isinya dan berhenti.
+      Satu kali jalan: buat alias, tampilkan alias + EMAIL ASLI, lalu tunggu pesan.
 
   python addy_helper.py gen
-      Membuat alias acak baru dan menampilkan email + token (mudah di-copy).
+      Membuat alias acak baru dan menampilkan email + token.
 
   python addy_helper.py check <email> <token>
       Menampilkan pesan-pesan yang masuk ke alias tersebut.
 
   python addy_helper.py watch <email> <token> [--timeout 10]
-      Polling otomatis selama --timeout detik. Jika ada pesan masuk, langsung
-      menampilkan isi pesan dan berhenti.
+      Polling otomatis sampai pesan masuk.
 
 Contoh:
+  python addy_helper.py
   python addy_helper.py run
   python addy_helper.py check wc1senj5@anonaddy.me 43b9a262-3853-4f3d-a3dc-b45ae61d7289
-  python addy_helper.py watch wc1senj5@anonaddy.me 43b9a262-3853-4f3d-a3dc-b45ae61d7289 --timeout 10
 """
 import argparse
 import getpass
@@ -395,11 +398,64 @@ def cmd_add(_args):
         print(c(f"  EMAIL ASLI: {cfg['real_inbox']}", YELLOW))
 
 
+def _show_data():
+    """Tampilkan data akun dari config.json."""
+    cfg = _load_config()
+    banner("DATA AKUN")
+    if not cfg:
+        print(c("Belum ada config.json. Pilih menu '3. Add data' untuk menambah akun.", YELLOW))
+        return
+    real = cfg.get("real_inbox")
+    print(f"  {c('EMAIL ASLI', BOLD)} : {c(real or '(belum diatur)', YELLOW)}")
+    accounts = cfg.get("accounts", [])
+    if not accounts:
+        print(c("  Belum ada akun di accounts[]. Pilih '3. Add data'.", DIM))
+        return
+    print()
+    for i, a in enumerate(accounts, 1):
+        email = a.get("email", "?")
+        pw = a.get("app_password", "")
+        print(f"  {c(str(i), BOLD)}. {c(email, CYAN)}   {c(pw, DIM)}")
+    print(c(f"  Total: {len(accounts)} akun", DIM))
+
+
+def menu_loop():
+    """Menu interaktif utama — loop sampai Exit."""
+    while True:
+        print()
+        banner("MENU ADY.IO")
+        print("  " + c("1. Check data", CYAN) + "   — tampilkan data akun")
+        print("  " + c("2. Start", CYAN) + "        — buat alias + tunggu pesan")
+        print("  " + c("3. Add data", CYAN) + "   — tambah akun baru")
+        print("  " + c("0. Exit", CYAN))
+        choice = input(c("\nPilih menu: ", BOLD)).strip()
+
+        if choice == "1":
+            _show_data()
+        elif choice == "2":
+            timeout_str = input(c("Timeout (detik, default 10): ", BOLD)).strip()
+            try:
+                timeout = int(timeout_str) if timeout_str else 10
+            except ValueError:
+                timeout = 10
+            if timeout <= 0:
+                print(c("[ERROR] Timeout harus > 0.", RED))
+                continue
+            cmd_run(argparse.Namespace(timeout=timeout, interval=3))
+        elif choice == "3":
+            cmd_add(None)
+        elif choice == "0":
+            print(c("✓ Terima kasih, exit.", GREEN))
+            break
+        else:
+            print(c("[ERROR] Pilihan tidak valid (0/1/2/3).", RED))
+
+
 def main():
     p = argparse.ArgumentParser(
-        description=c("Helper addy.io untuk Tempmail-MCP", BOLD + CYAN)
+        description=c("Helper addy.io untuk Tempmail-MCP — menu interaktif", BOLD + CYAN)
     )
-    sub = p.add_subparsers(dest="command", required=True)
+    sub = p.add_subparsers(dest="command")
 
     sub.add_parser("gen", help="Membuat alias acak baru").set_defaults(func=cmd_gen)
 
@@ -423,7 +479,10 @@ def main():
     pw.set_defaults(func=cmd_watch)
 
     args = p.parse_args()
-    args.func(args)
+    if args.command is None:
+        menu_loop()
+    else:
+        args.func(args)
 
 
 if __name__ == "__main__":
