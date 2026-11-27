@@ -554,10 +554,42 @@ def _show_data():
     print(c(f"  Total: {len(accounts)} akun", DIM))
 
 
+def _preflight_check():
+    """Periksa saat script dijalankan: minimal 1 akun Gmail + key addy.io.
+
+    Jika ada yang kosong, tampilkan peringatan. Script TIDAK keluar —
+    menu tetap muncul di posisi semula agar pengguna bisa mengisi data.
+    """
+    cfg = _load_config()
+    missing = []
+
+    accounts = cfg.get("accounts", []) if cfg else []
+    if not accounts:
+        missing.append("1 akun Gmail (menu 3. Add data)")
+
+    key = _get_addy_key()
+    if not key:
+        missing.append("key API addy.io (menu 4. Set key)")
+
+    if missing:
+        print()
+        print(c("┌" + "─" * 56 + "┐", YELLOW))
+        print(c("│", YELLOW) + c("  ⚠ PERINGATAN DATA", BOLD + YELLOW) + c("│", YELLOW))
+        print(c("├" + "─" * 56 + "┤", YELLOW))
+        print(c("│", YELLOW) + c("  Data yang belum terisi:", BOLD) + c("│", YELLOW))
+        for m in missing:
+            print(c("│", YELLOW) + c("  • " + m, YELLOW) + c("│", YELLOW))
+        print(c("│", YELLOW) + c("  Lengkapi terlebih dahulu, script tetap", YELLOW) + c("│", YELLOW))
+        print(c("│", YELLOW) + c("  jalan dan tidak akan keluar.", YELLOW) + c("│", YELLOW))
+        print(c("└" + "─" * 56 + "┘", YELLOW))
+        print()
+
+
 def menu_loop():
     """Menu interaktif utama — loop sampai Exit."""
     _clear_screen()
     while True:
+        _preflight_check()
         print()
         _header_block()
         print()
