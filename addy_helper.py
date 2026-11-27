@@ -4,6 +4,11 @@ Helper untuk provider addy.io pada Tempmail-MCP.
 Tidak perlu install library tambahan (hanya stdlib Python).
 
 Perintah:
+  python addy_helper.py add
+      Menambah akun Gmail baru ke config.json via input: masukkan Email Gmail
+      dan App Password (input tidak tampak), lalu Enter. Akun otomatis disimpan.
+      Tidak perlu edit config.json/.env manual.
+
   python addy_helper.py run [--timeout 10]
       SATU KALI JALAN: buat alias acak, tampilkan alias + EMAIL ASLI (inbox
       tujuan forward), lalu otomatis tunggu pesan masuk selama --timeout detik.
@@ -25,6 +30,7 @@ Contoh:
   python addy_helper.py watch wc1senj5@anonaddy.me 43b9a262-3853-4f3d-a3dc-b45ae61d7289 --timeout 10
 """
 import argparse
+import getpass
 import json
 import os
 import sys
@@ -327,6 +333,68 @@ def cmd_watch(args):
         _die(str(e))
 
 
+def cmd_add(_args):
+    """Tambah akun Gmail baru ke config.json via input (tanpa edit file manual)."""
+    banner("TAMBAH AKUN GMAIL")
+    print(c("Isi data di bawah — akun otomatis disimpan ke config.json", DIM))
+    print()
+
+    email = input(c("Email Gmail        : ", BOLD)).strip()
+    if not email or "@" not in email:
+        print(c("[ERROR] Email tidak valid (harus mengandung @).", RED))
+        return
+
+    app_password = getpass.getpass(
+        c("App Password        : ", BOLD)
+    ).strip()
+    if not app_password:
+        print(c("[ERROR] App Password tidak boleh kosong.", RED))
+        return
+
+    cfg = _load_config()
+    if cfg is None:
+        cfg = {}
+    if not isinstance(cfg.get("accounts"), list):
+        cfg["accounts"] = []
+
+    # jika sudah ada email yang sama -> update password
+    existing = next(
+        (a for a in cfg["accounts"] if a.get("email") == email), None
+    )
+    if existing:
+        existing["app_password"] = app_password
+        print(c(f"✓ Email {email} sudah ada — App Password diperbarui.", GREEN))
+    else:
+        cfg["accounts"].append({"email": email, "app_password": app_password})
+        print(c(f"✓ Akun {email} ditambahkan.", GREEN))
+
+    # tanya apakah menjadi EMAIL ASLI (inbox tujuan)
+    if not cfg.get("real_inbox"):
+        set_inbox = input(
+            c(f"Set sebagai EMAIL ASLI (inbox tujuan)? [Y/n]: ", BOLD)
+        ).strip().lower()
+        if set_inbox in ("", "y", "yes"):
+            cfg["real_inbox"] = email
+            print(c(f"✓ EMAIL ASLI diatur ke {email}.", GREEN))
+
+    # tulis kembali ke config.json
+    try:
+        with open("config.json", "w") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+        print(c("✓ config.json sudah diperbarui.", GREEN))
+    except OSError as e:
+        print(c(f"[ERROR] Gagal menulis config.json: {e}", RED))
+        return
+
+    print()
+    banner("AKUN TERKONFIGURASI")
+    for a in cfg["accounts"]:
+        print(f"  • {c(a.get('email', '?'), CYAN)}")
+    print(c(f"  Total: {len(cfg['accounts'])} akun", DIM))
+    if cfg.get("real_inbox"):
+        print(c(f"  EMAIL ASLI: {cfg['real_inbox']}", YELLOW))
+
+
 def main():
     p = argparse.ArgumentParser(
         description=c("Helper addy.io untuk Tempmail-MCP", BOLD + CYAN)
@@ -334,6 +402,8 @@ def main():
     sub = p.add_subparsers(dest="command", required=True)
 
     sub.add_parser("gen", help="Membuat alias acak baru").set_defaults(func=cmd_gen)
+
+    sub.add_parser("add", help="Tambah akun Gmail baru ke config.json (input email + app password)").set_defaults(func=cmd_add)
 
     pr = sub.add_parser("run", help="Satu kali jalan: buat alias, tampilkan, lalu tunggu pesan")
     pr.add_argument("--timeout", type=int, default=10, help="Timeout detik (default 10)")
