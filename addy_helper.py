@@ -133,7 +133,7 @@ def _request(method, url, data=None):
 
 
 def _read_env():
-    """Baca .env untuk mengambil GMAIL_EMAIL (inbox asli tujuan forward)."""
+    """Baca .env untuk mengambil GMAIL_EMAIL (fallback jika config.json tidak ada)."""
     try:
         with open(".env", "r") as f:
             for line in f:
@@ -143,6 +143,34 @@ def _read_env():
     except FileNotFoundError:
         pass
     return None
+
+
+def _load_config():
+    """Baca config.json (data akun). Return dict atau None jika tidak ada/invalid."""
+    try:
+        with open("config.json", "r") as f:
+            cfg = json.load(f)
+        return cfg if isinstance(cfg, dict) else None
+    except FileNotFoundError:
+        return None
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _get_real_inbox():
+    """Inbox asli tujuan forward: dari config.json, fallback ke .env GMAIL_EMAIL."""
+    cfg = _load_config()
+    if cfg and cfg.get("real_inbox"):
+        return cfg["real_inbox"]
+    return _read_env()
+
+
+def _get_accounts():
+    """Daftar akun dari config.json: [{email, app_password}, ...]."""
+    cfg = _load_config()
+    if cfg and isinstance(cfg.get("accounts"), list):
+        return cfg["accounts"]
+    return []
 
 
 def _create_alias():
@@ -177,7 +205,8 @@ def cmd_gen(_args):
         result = _with_spinner("Membuat alias acak baru", _create_alias)
         email = result["email"]
         token = result["token"]
-        real = _read_env()
+        real = _get_real_inbox()
+        accounts = _get_accounts()
         print()
         banner("ALIAS BUKU")
         rows = [
@@ -191,6 +220,10 @@ def cmd_gen(_args):
         print()
         print(c(f"[COPY] {email}", BOLD + GREEN))
         print()
+        if accounts:
+            emails = ", ".join(a.get("email", "?") for a in accounts)
+            print(c(f"Akun terkonfigurasi ({len(accounts)}): {emails}", DIM))
+            print()
         print(c("Gunakan EMAIL ini untuk mendaftar. Cek pesan dengan:", DIM))
         print(f"  python addy_helper.py check {email} {token}")
         print(f"  python addy_helper.py watch {email} {token}")
@@ -206,7 +239,8 @@ def cmd_run(args):
         result = _with_spinner("Membuat alias acak baru", _create_alias)
         email = result["email"]
         token = result["token"]
-        real = _read_env()
+        real = _get_real_inbox()
+        accounts = _get_accounts()
 
         print()
         banner("ALIAS & EMAIL ASLI")
@@ -220,7 +254,10 @@ def cmd_run(args):
         print()
         print(c(f"[COPY] {email}", BOLD + GREEN))
         print(c(f"Daftar website menggunakan ALIAS di atas.", DIM))
-        print(c(f"Kode verifikasi diteruskan ke EMAIL ASLI: {real or '(lihat .env)'}", DIM))
+        print(c(f"Kode verifikasi diteruskan ke EMAIL ASLI: {real or '(lihat .env/config.json)'}", DIM))
+        if accounts:
+            emails = ", ".join(a.get("email", "?") for a in accounts)
+            print(c(f"Akun terkonfigurasi ({len(accounts)}): {emails}", DIM))
         print()
 
         print(c(f"⏳  Menunggu pesan masuk (max {args.timeout}s)...", CYAN))
