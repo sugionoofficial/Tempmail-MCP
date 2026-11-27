@@ -74,7 +74,16 @@ def clear_line():
 
 
 def _clear_screen():
-    """Bersihkan layar terminal (ANSI, portable di Termux/Linux)."""
+    """Bersihkan layar terminal (portable di Termux/Linux/Windows)."""
+    # primary: gunakan command clear/cls — lebih reliabel di Termux
+    try:
+        if os.name == "nt":
+            os.system("cls")
+        else:
+            os.system("clear")
+    except OSError:
+        pass
+    # fallback: ANSI erase + home
     sys.stdout.write("\033[2J\033[H")
     sys.stdout.flush()
 
