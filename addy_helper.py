@@ -73,6 +73,12 @@ def clear_line():
     sys.stdout.flush()
 
 
+def _clear_screen():
+    """Bersihkan layar terminal (ANSI, portable di Termux/Linux)."""
+    sys.stdout.write("\033[2J\033[H")
+    sys.stdout.flush()
+
+
 def banner(title):
     line = "═" * 46
     print(c(line, DIM))
@@ -421,6 +427,7 @@ def _show_data():
 
 def menu_loop():
     """Menu interaktif utama — loop sampai Exit."""
+    _clear_screen()
     while True:
         print()
         banner("MENU ADY.IO")
