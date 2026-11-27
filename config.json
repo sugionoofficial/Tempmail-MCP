@@ -1,0 +1,14 @@
+{
+  "_note": "Isi dengan data Anda. Tambahkan akun baru dengan menambah object di accounts[]. real_inbox = inbox asli tempat pesan addy.io diteruskan (dan dibaca via IMAP). app_password = App Password 16 karakter TANPA spasi.",
+  "real_inbox": "your-inbox@gmail.com",
+  "accounts": [
+    {
+      "email": "akun1@gmail.com",
+      "app_password": "16karaktertanpaspasi"
+    },
+    {
+      "email": "akun2@gmail.com",
+      "app_password": "16karaktertanpaspasi"
+    }
+  ]
+}
