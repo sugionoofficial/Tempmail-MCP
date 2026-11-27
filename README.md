@@ -47,8 +47,11 @@ docker compose up -d
 | `FLARESOLVERR_URL` | `http://localhost:8191` | FlareSolverr endpoint |
 | `HEALTH_CHECK_ON_STARTUP` | `true` | Probe all providers at startup and disable failures |
 | `SHARED_EMAILS_PATH` | `shared_emails.json` | Path to the server-side pinned-emails store |
-| `GMAIL_EMAIL` | — | Gmail address (for Gmail IMAP provider) |
-| `GMAIL_APP_PASSWORD` | — | Gmail app password |
+| `GMAIL_EMAIL` | — | Gmail address (single account, alias mode) |
+| `GMAIL_APP_PASSWORD` | — | Gmail app password (single account, alias mode) |
+| `GMAIL_ACCOUNTS` | — | JSON array of `{email, app_password}` for Gmail **pool** mode (real accounts, round-robin) |
+| `GMAIL_EMAILS` | — | Comma-separated Gmail addresses (pool mode, alternative to `GMAIL_ACCOUNTS`) |
+| `GMAIL_APP_PASSWORDS` | — | Comma-separated app passwords aligned to `GMAIL_EMAILS` (pool mode) |
 
 ---
 
@@ -198,7 +201,8 @@ Priority order (first healthy provider wins):
 
 | Priority | Name | Type | Requires FlareSolverr | Notes |
 |---|---|---|---|---|
-| 1 | `gmail` | IMAP | No | Needs `GMAIL_EMAIL` + `GMAIL_APP_PASSWORD` |
+| 1 | `gmail` | IMAP | No | **Alias mode**: needs `GMAIL_EMAIL` + `GMAIL_APP_PASSWORD` — generates `user+<tag>@gmail.com` |
+| 1 | `gmail` | IMAP | No | **Pool mode**: needs `GMAIL_ACCOUNTS` (or `GMAIL_EMAILS` + `GMAIL_APP_PASSWORDS`) — hands out real, independent Gmail accounts round-robin |
 | 2 | `mail.tm` | REST API | No | Most reliable fallback |
 | 3 | `tempmail.io` | REST API | No | Reliable |
 | 4 | `mailticking` | Scraping | Yes | CF-protected |
