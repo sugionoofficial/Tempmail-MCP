@@ -429,15 +429,18 @@ def cmd_aliases(_args):
         status = c("AKTIF", GREEN) if active else c("NON-AKTIF", RED)
         fwd = a.get("emails_forwarded", 0) or 0
         blocked = a.get("emails_blocked", 0) or 0
+        last_forwarded = a.get("last_forwarded")
         last_blocked = a.get("last_blocked")
-        extra = c(f"forwarded: {fwd}", DIM)
+        print(f"  {c(email, CYAN)}   {status}")
+        if fwd:
+            print(f"      {c('forwarded :', BOLD)} {fwd}   {c('terakhir: ' + str(last_forwarded), DIM) if last_forwarded else ''}")
+        else:
+            print(f"      {c('forwarded :', BOLD)} {c('0', DIM)}")
         if blocked:
-            extra += "  " + c(f"blocked: {blocked}", RED)
-            if last_blocked:
-                extra += "  " + c(f"terakhir: {last_blocked}", DIM)
-        print(f"  {c(email, CYAN)}   {status}    {extra}")
+            print(f"      {c('blocked   :', BOLD)} {c(str(blocked), RED)}   {c('terakhir: ' + str(last_blocked), DIM) if last_blocked else ''}")
     print()
     print(c("Tip: alias harus AKTIF agar addy.io meneruskan pesan ke inbox asli.", DIM))
+    print(c("  forwarded=0: belum ada mail masuk ke alias ini.", DIM))
     print(c("  Jika blocked > 0: mail masuk tapi ditolak addy.io — tidak sampai inbox asli.", DIM))
 
 
