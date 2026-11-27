@@ -10,9 +10,9 @@ Perintah:
   python addy_helper.py check <email> <token>
       Menampilkan pesan-pesan yang masuk ke alias tersebut.
 
-  python addy_helper.py watch <email> <token> [--timeout 180]
-      Polling otomatis sampai ada pesan masuk, lalu menampilkan isi pesan
-      (cocok untuk menunggu kode verifikasi). Berhenti setelah --timeout detik.
+  python addy_helper.py watch <email> <token> [--timeout 10]
+      Polling otomatis selama --timeout detik. Jika ada pesan masuk, langsung
+      menampilkan isi pesan dan berhenti. Tidak ada output spam selama polling.
 
 Contoh:
   python addy_helper.py gen
@@ -91,24 +91,18 @@ def cmd_check(args):
 
 def cmd_watch(args):
     print(f"Menunggu pesan untuk {args.email} (max {args.timeout}s)...")
-    print("Tekan Ctrl+C untuk berhenti.\n")
     start = time.time()
-    last = 0
     try:
         while time.time() - start < args.timeout:
             messages = _fetch_messages(args.email, args.token)
-            if len(messages) > last:
-                last = len(messages)
-                print(f"[{time.strftime('%H:%M:%S')}] Ada {len(messages)} pesan baru!\n")
+            if messages:
                 _print_messages(messages)
-                if len(messages) >= 1:
-                    print("\n[Selesai] Pesan sudah muncul di atas.")
-                    return
+                print("\n[Selesai] Pesan masuk — script berhenti.")
+                return
             time.sleep(args.interval)
     except KeyboardInterrupt:
         print("\nBerhenti.")
-    print(f"\n[Timeout] Tidak ada pesan dalam {args.timeout}s.")
-    print("Coba cek manual: python addy_helper.py check", args.email, args.token)
+    print(f"[Timeout] Tidak ada pesan dalam {args.timeout}s.")
 
 
 def main():
@@ -125,8 +119,8 @@ def main():
     pw = sub.add_parser("watch", help="Polling otomatis sampai pesan masuk")
     pw.add_argument("email")
     pw.add_argument("token")
-    pw.add_argument("--timeout", type=int, default=180, help="Timeout detik (default 180)")
-    pw.add_argument("--interval", type=int, default=10, help="Interval polling detik (default 10)")
+    pw.add_argument("--timeout", type=int, default=10, help="Timeout detik (default 10)")
+    pw.add_argument("--interval", type=int, default=3, help="Interval polling detik (default 3)")
     pw.set_defaults(func=cmd_watch)
 
     args = p.parse_args()
