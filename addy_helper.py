@@ -9,6 +9,7 @@ CARA PAKAI UTAMA (satu perintah, ada menu interaktif):
         1. Check data  — tampilkan data akun (lalu kembali ke menu)
         2. Start       — buat alias acak + tunggu pesan masuk
         3. Add data    — tambah akun Gmail baru (input email + app password)
+        4. Set key     — input key API addy.io (disimpan di config.json)
         0. Exit        — keluar
 
   Command lanjutan (CLI) tetap tersedia:
@@ -115,6 +116,7 @@ def _menu_box():
         ("1", "Check data", "Tampilkan data akun"),
         ("2", "Start", "Buat alias + tunggu pesan"),
         ("3", "Add data", "Tambah akun baru"),
+        ("4", "Set key", "Input key API addy.io"),
         ("0", "Exit", "Keluar dari script"),
     ]
     print(c("┌" + "─" * width + "┐", CYAN))
@@ -205,6 +207,20 @@ def _read_env():
     return None
 
 
+def _default_config():
+    """Template config.json default (dibuat jika file belum ada)."""
+    return {
+        "_note": (
+            "Isi dengan data Anda. real_inbox = inbox asli tempat pesan addy.io "
+            "diteruskan (dan dibaca via IMAP). addy_api_key = key API addy.io. "
+            "app_password = App Password 16 karakter TANPA spasi."
+        ),
+        "real_inbox": "",
+        "addy_api_key": "",
+        "accounts": [],
+    }
+
+
 def _load_config():
     """Baca config.json (data akun). Return dict atau None jika tidak ada/invalid."""
     try:
@@ -215,6 +231,35 @@ def _load_config():
         return None
     except (json.JSONDecodeError, OSError):
         return None
+
+
+def _ensure_config():
+    """Baca config.json; jika tidak ada, buat file baru dengan template default."""
+    cfg = _load_config()
+    if cfg is None:
+        cfg = _default_config()
+        try:
+            with open("config.json", "w") as f:
+                json.dump(cfg, f, indent=2, ensure_ascii=False)
+        except OSError as e:
+            print(c(f"[ERROR] Gagal membuat config.json: {e}", RED))
+    return cfg
+
+
+def _get_addy_key():
+    """Key API addy.io: dari config.json, fallback ke .env ADDY_API_KEY."""
+    cfg = _load_config()
+    if cfg and cfg.get("addy_api_key"):
+        return cfg["addy_api_key"]
+    try:
+        with open(".env", "r") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("ADDY_API_KEY=") and not line.startswith("#"):
+                    return line.split("=", 1)[1].strip()
+    except FileNotFoundError:
+        pass
+    return None
 
 
 def _get_real_inbox():
@@ -405,9 +450,7 @@ def cmd_add(_args):
         print(c("[ERROR] App Password tidak boleh kosong.", RED))
         return
 
-    cfg = _load_config()
-    if cfg is None:
-        cfg = {}
+    cfg = _ensure_config()
     if not isinstance(cfg.get("accounts"), list):
         cfg["accounts"] = []
 
@@ -449,6 +492,41 @@ def cmd_add(_args):
         print(c(f"  EMAIL ASLI: {cfg['real_inbox']}", YELLOW))
 
 
+def cmd_key(_args):
+    """Input key API addy.io dan simpan ke config.json (tidak hardcode)."""
+    banner("SET KEY API ADY.IO")
+    print(c("Key ini disimpan di config.json — tidak hardcode di script.", DIM))
+    print()
+
+    existing = _get_addy_key()
+    if existing:
+        shown = existing if len(existing) <= 8 else existing[:4] + "..." + existing[-4:]
+        print(c(f"Key saat ini : {shown}", DIM))
+        overwrite = input(c("Ganti key? [Y/n]: ", BOLD)).strip().lower()
+        if overwrite not in ("", "y", "yes"):
+            print(c("Key tidak diganti.", YELLOW))
+            return
+
+    key = getpass.getpass(c("Key API addy.io     : ", BOLD)).strip()
+    if not key:
+        print(c("[ERROR] Key tidak boleh kosong.", RED))
+        return
+
+    cfg = _ensure_config()
+    cfg["addy_api_key"] = key
+    try:
+        with open("config.json", "w") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+        print(c("✓ Key API addy.io disimpan ke config.json.", GREEN))
+    except OSError as e:
+        print(c(f"[ERROR] Gagal menulis config.json: {e}", RED))
+        return
+
+    print()
+    print(c("Untuk gunakan key ini, tambahkan ke .env juga (opsional):", DIM))
+    print(c("  ADDY_API_KEY=" + key, YELLOW))
+
+
 def _show_data():
     """Tampilkan data akun dari config.json."""
     cfg = _load_config()
@@ -458,6 +536,12 @@ def _show_data():
         return
     real = cfg.get("real_inbox")
     print(f"  {c('EMAIL ASLI', BOLD)} : {c(real or '(belum diatur)', YELLOW)}")
+    key = cfg.get("addy_api_key")
+    if key:
+        shown = key if len(key) <= 8 else key[:4] + "..." + key[-4:]
+        print(f"  {c('KEY ADY.IO', BOLD)} : {c(shown, CYAN)}")
+    else:
+        print(f"  {c('KEY ADY.IO', BOLD)} : {c('(belum diatur)', DIM)}")
     accounts = cfg.get("accounts", [])
     if not accounts:
         print(c("  Belum ada akun di accounts[]. Pilih '3. Add data'.", DIM))
@@ -494,11 +578,13 @@ def menu_loop():
             cmd_run(argparse.Namespace(timeout=timeout, interval=3))
         elif choice == "3":
             cmd_add(None)
+        elif choice == "4":
+            cmd_key(None)
         elif choice == "0":
             print(c("✓ Terima kasih, exit.", GREEN))
             break
         else:
-            print(c("[ERROR] Pilihan tidak valid (0/1/2/3).", RED))
+            print(c("[ERROR] Pilihan tidak valid (0/1/2/3/4).", RED))
 
 
 def main():
@@ -510,6 +596,8 @@ def main():
     sub.add_parser("gen", help="Membuat alias acak baru").set_defaults(func=cmd_gen)
 
     sub.add_parser("add", help="Tambah akun Gmail baru ke config.json (input email + app password)").set_defaults(func=cmd_add)
+
+    sub.add_parser("key", help="Input key API addy.io ke config.json").set_defaults(func=cmd_key)
 
     pr = sub.add_parser("run", help="Satu kali jalan: buat alias, tampilkan, lalu tunggu pesan")
     pr.add_argument("--timeout", type=int, default=10, help="Timeout detik (default 10)")
