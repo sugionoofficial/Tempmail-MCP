@@ -11,7 +11,7 @@ Multiple disposable-inbox providers are aggregated behind a single API; broken p
 
 ## Features
 
-- **Multi-provider** — mail.tm, tempmail.io, Gmail (IMAP), mailticking, tempmailo, tempail
+- **Multi-provider** — addy.io, mail.tm, tempmail.io, Gmail (IMAP), mailticking, tempmailo, tempail
 - **Auto-fallback** — picks the first healthy provider in priority order
 - **Circuit breaker** — providers that fail 3× in a row are auto-disabled; re-enable via API
 - **Startup health-check** — broken providers are disabled before the first request
@@ -52,6 +52,8 @@ docker compose up -d
 | `GMAIL_ACCOUNTS` | — | JSON array of `{email, app_password}` for Gmail **pool** mode (real accounts, round-robin) |
 | `GMAIL_EMAILS` | — | Comma-separated Gmail addresses (pool mode, alternative to `GMAIL_ACCOUNTS`) |
 | `GMAIL_APP_PASSWORDS` | — | Comma-separated app passwords aligned to `GMAIL_EMAILS` (pool mode) |
+| `ADDY_API_KEY` | — | addy.io personal access token (`https://app.addy.io/settings/api`) — random aliases forwarding to your real inbox |
+| `ADDY_DOMAIN` | — | Optional addy.io domain to create aliases on (e.g. `anonaddy.me`); auto-picked if unset |
 
 ---
 
@@ -203,7 +205,8 @@ Priority order (first healthy provider wins):
 |---|---|---|---|---|
 | 1 | `gmail` | IMAP | No | **Alias mode**: needs `GMAIL_EMAIL` + `GMAIL_APP_PASSWORD` — generates `user+<tag>@gmail.com` |
 | 1 | `gmail` | IMAP | No | **Pool mode**: needs `GMAIL_ACCOUNTS` (or `GMAIL_EMAILS` + `GMAIL_APP_PASSWORDS`) — hands out real, independent Gmail accounts round-robin |
-| 2 | `mail.tm` | REST API | No | Most reliable fallback |
+| 2 | `addy.io` | REST API | No | Needs `ADDY_API_KEY` + `GMAIL_EMAIL` + `GMAIL_APP_PASSWORD` — creates **random unique aliases** that forward to your real inbox (alias domain is NOT gmail.com) |
+| 3 | `mail.tm` | REST API | No | Most reliable fallback |
 | 3 | `tempmail.io` | REST API | No | Reliable |
 | 4 | `mailticking` | Scraping | Yes | CF-protected |
 | 5 | `tempmailo` | Scraping | Yes | CF-protected |
