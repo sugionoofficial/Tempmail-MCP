@@ -11,6 +11,7 @@ CARA PAKAI UTAMA (satu perintah, ada menu interaktif):
         3. Add data    — tambah akun Gmail baru (input email + app password)
         4. Set key     — input key API addy.io (disimpan di config.json)
         5. Inbox       — diagnosis: lihat pesan terakhir di inbox asli (IMAP)
+        6. Aliases     — cek alias addy.io (ada/aktif)
         0. Exit        — keluar
 
   Command lanjutan (CLI) tetap tersedia:
@@ -120,6 +121,7 @@ def _menu_box():
         ("3", "Add data", "Tambah akun baru"),
         ("4", "Set key", "Input key API addy.io"),
         ("5", "Inbox", "Diagnosis inbox asli"),
+        ("6", "Aliases", "Cek alias addy.io"),
         ("0", "Exit", "Keluar dari script"),
     ]
     print(c("┌" + "─" * width + "┐", CYAN))
@@ -363,6 +365,52 @@ def _imap_list_recent(limit=15):
             mail.logout()
         except Exception:
             pass
+
+
+def _addy_api_get(path, params=None):
+    """Call addy.io API directly (bypass server) untuk diagnosis."""
+    key = _get_addy_key()
+    if not key:
+        _die("Key API addy.io belum terisi. Gunakan menu 4. Set key.")
+    url = f"https://app.addy.io/api/v1{path}"
+    if params:
+        url += "?" + urllib.parse.urlencode(params)
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {key}",
+            "X-Requested-With": "XMLHttpRequest",
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read().decode() or "null")
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode()
+        raise ApiError(f"HTTP {e.code}: {detail}")
+    except urllib.error.URLError as e:
+        raise ApiError(f"Tidak bisa mencapai addy.io: {e}")
+
+
+def cmd_aliases(_args):
+    """Diagnosis: cek alias-alias di addy.io (ada/aktif) via API langsung."""
+    try:
+        data = _addy_api_get("/aliases")
+    except ApiError as e:
+        _die(str(e))
+    aliases = data.get("data", data) if isinstance(data, dict) else data
+    if not isinstance(aliases, list) or not aliases:
+        print(c("(tidak ada alias di akun addy.io ini)", DIM))
+        return
+    print(c(f"\n{len(aliases)} alias di addy.io:\n", BOLD + GREEN))
+    for a in aliases:
+        email = a.get("email", "?")
+        active = a.get("active", True)
+        status = c("AKTIF", GREEN) if active else c("NON-AKTIF", RED)
+        print(f"  {c(email, CYAN)}   {status}")
+    print()
+    print(c("Tip: alias harus AKTIF agar addy.io meneruskan pesan ke inbox asli.", DIM))
 
 
 def _create_alias():
@@ -706,11 +754,13 @@ def menu_loop():
             cmd_key(None)
         elif choice == "5":
             cmd_inbox(None)
+        elif choice == "6":
+            cmd_aliases(None)
         elif choice == "0":
             print(c("✓ Terima kasih, exit.", GREEN))
             break
         else:
-            print(c("[ERROR] Pilihan tidak valid (0/1/2/3/4/5).", RED))
+            print(c("[ERROR] Pilihan tidak valid (0/1/2/3/4/5/6).", RED))
 
 
 def main():
@@ -726,6 +776,8 @@ def main():
     sub.add_parser("key", help="Input key API addy.io ke config.json").set_defaults(func=cmd_key)
 
     sub.add_parser("inbox", help="Diagnosis: lihat pesan terakhir di inbox asli").set_defaults(func=cmd_inbox)
+
+    sub.add_parser("aliases", help="Diagnosis: cek alias addy.io (ada/aktif)").set_defaults(func=cmd_aliases)
 
     pr = sub.add_parser("run", help="Satu kali jalan: buat alias, tampilkan, lalu tunggu pesan")
     pr.add_argument("--timeout", type=int, default=10, help="Timeout detik (default 10)")
