@@ -16,6 +16,7 @@ from typing import Optional
 
 from .providers import (
     EmailProvider,
+    GmailPoolProvider,
     GmailProvider,
     MailTickingProvider,
     MailTmProvider,
@@ -173,11 +174,17 @@ async def startup() -> None:
     register(MailTmProvider())
     register(TempAilProvider())
 
-    if os.getenv("GMAIL_EMAIL") and os.getenv("GMAIL_APP_PASSWORD"):
+    if os.getenv("GMAIL_ACCOUNTS") or os.getenv("GMAIL_EMAILS"):
+        try:
+            register(GmailPoolProvider())
+            log.info("Gmail pool provider registered")
+        except ValueError as exc:
+            log.warning("Gmail pool provider skipped: %s", exc)
+    elif os.getenv("GMAIL_EMAIL") and os.getenv("GMAIL_APP_PASSWORD"):
         register(GmailProvider())
         log.info("Gmail provider registered")
     else:
-        log.info("Gmail provider skipped (GMAIL_EMAIL / GMAIL_APP_PASSWORD not set)")
+        log.info("Gmail provider skipped (GMAIL_ACCOUNTS / GMAIL_EMAILS / GMAIL_EMAIL not set)")
 
     if os.getenv("HEALTH_CHECK_ON_STARTUP", "true").lower() not in ("0", "false", "no"):
         log.info("Running startup health-checks on all providers…")
