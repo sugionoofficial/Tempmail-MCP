@@ -12,6 +12,7 @@ CARA PAKAI UTAMA (satu perintah, ada menu interaktif):
         4. Set key     — input key API addy.io (disimpan di config.json)
         5. Inbox       — diagnosis: lihat pesan terakhir di inbox asli (IMAP)
         6. Aliases     — cek alias addy.io (ada/aktif)
+        7. Failed      — cek failed deliveries addy.io
         0. Exit        — keluar
 
   Command lanjutan (CLI) tetap tersedia:
@@ -122,6 +123,7 @@ def _menu_box():
         ("4", "Set key", "Input key API addy.io"),
         ("5", "Inbox", "Diagnosis inbox asli"),
         ("6", "Aliases", "Cek alias addy.io"),
+        ("7", "Failed", "Cek failed deliveries"),
         ("0", "Exit", "Keluar dari script"),
     ]
     print(c("┌" + "─" * width + "┐", CYAN))
@@ -411,6 +413,32 @@ def cmd_aliases(_args):
         print(f"  {c(email, CYAN)}   {status}")
     print()
     print(c("Tip: alias harus AKTIF agar addy.io meneruskan pesan ke inbox asli.", DIM))
+
+
+def cmd_failed(_args):
+    """Diagnosis: cek failed deliveries addy.io (mail yang gagal di-forward)."""
+    try:
+        data = _addy_api_get("/failed-deliveries", {"filter[email_type]": "inbound"})
+    except ApiError as e:
+        _die(str(e))
+    fails = data.get("data", data) if isinstance(data, dict) else data
+    if not isinstance(fails, list) or not fails:
+        print(c("✓ Tidak ada failed delivery — semua mail yang masuk berhasil di-forward.", GREEN))
+        print(c("  Artinya: opencode.ai belum mengirim ke alias, atau mail masih dalam perjalanan.", DIM))
+        return
+    print(c(f"\n{len(fails)} failed delivery di addy.io:\n", BOLD + RED))
+    for f in fails:
+        alias = f.get("alias_email", "?")
+        sender = f.get("sender", "?")
+        status = f.get("status", "?")
+        code = f.get("code", "")
+        tried = f.get("attempted_at", "")
+        print(f"  {c('Alias  :', BOLD)} {c(alias, CYAN)}")
+        print(f"  {c('Dari   :', BOLD)} {sender}")
+        print(f"  {c('Status :', BOLD)} {c(status, RED)}  {c(code, DIM)}")
+        print(f"  {c('Waktu  :', BOLD)} {c(str(tried), DIM)}")
+        print()
+    print(c("Mail yang gagal di-forward TIDAK akan sampai ke inbox asli.", YELLOW))
 
 
 def _create_alias():
@@ -756,11 +784,13 @@ def menu_loop():
             cmd_inbox(None)
         elif choice == "6":
             cmd_aliases(None)
+        elif choice == "7":
+            cmd_failed(None)
         elif choice == "0":
             print(c("✓ Terima kasih, exit.", GREEN))
             break
         else:
-            print(c("[ERROR] Pilihan tidak valid (0/1/2/3/4/5/6).", RED))
+            print(c("[ERROR] Pilihan tidak valid (0/1/2/3/4/5/6/7).", RED))
 
 
 def main():
@@ -778,6 +808,8 @@ def main():
     sub.add_parser("inbox", help="Diagnosis: lihat pesan terakhir di inbox asli").set_defaults(func=cmd_inbox)
 
     sub.add_parser("aliases", help="Diagnosis: cek alias addy.io (ada/aktif)").set_defaults(func=cmd_aliases)
+
+    sub.add_parser("failed", help="Diagnosis: cek failed deliveries addy.io").set_defaults(func=cmd_failed)
 
     pr = sub.add_parser("run", help="Satu kali jalan: buat alias, tampilkan, lalu tunggu pesan")
     pr.add_argument("--timeout", type=int, default=10, help="Timeout detik (default 10)")
