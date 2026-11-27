@@ -4,6 +4,11 @@ Helper untuk provider addy.io pada Tempmail-MCP.
 Tidak perlu install library tambahan (hanya stdlib Python).
 
 Perintah:
+  python addy_helper.py run [--timeout 10]
+      SATU KALI JALAN: buat alias acak, tampilkan alias + EMAIL ASLI (inbox
+      tujuan forward), lalu otomatis tunggu pesan masuk selama --timeout detik.
+      Jika pesan masuk, langsung menampilkan isinya dan berhenti.
+
   python addy_helper.py gen
       Membuat alias acak baru dan menampilkan email + token (mudah di-copy).
 
@@ -15,12 +20,13 @@ Perintah:
       menampilkan isi pesan dan berhenti. Tidak ada output spam selama polling.
 
 Contoh:
-  python addy_helper.py gen
+  python addy_helper.py run
   python addy_helper.py check wc1senj5@anonaddy.me 43b9a262-3853-4f3d-a3dc-b45ae61d7289
-  python addy_helper.py watch wc1senj5@anonaddy.me 43b9a262-3853-4f3d-a3dc-b45ae61d7289 --timeout 180
+  python addy_helper.py watch wc1senj5@anonaddy.me 43b9a262-3853-4f3d-a3dc-b45ae61d7289 --timeout 10
 """
 import argparse
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -47,21 +53,71 @@ def _request(method, url, data=None):
         sys.exit(1)
 
 
+def _read_env():
+    """Baca .env untuk mengambil GMAIL_EMAIL (inbox asli tujuan forward)."""
+    try:
+        with open(".env", "r") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("GMAIL_EMAIL=") and not line.startswith("#"):
+                    return line.split("=", 1)[1].strip()
+    except FileNotFoundError:
+        pass
+    return None
+
+
 def cmd_gen(_args):
     print("Membuat alias acak baru...")
     result = _request("POST", f"{BASE}/api/email?name=addy.io", data={})
     email = result["email"]
     token = result["token"]
+    real = _read_env()
     print("\n===== ALIAS BUKU =====")
     print(f"EMAIL   : {email}")
     print(f"TOKEN   : {token}")
     print(f"PROVIDER: {result['provider']}")
+    if real:
+        print(f"EMAIL ASLI (tujuan) : {real}")
     print("========================")
     print(f"\n[COPY] {email}")
     print("\nGunakan EMAIL ini untuk mendaftar. Pesan/kode verifikasi akan")
     print("diteruskan ke inbox asli Anda. Cek dengan:")
     print(f'  python addy_helper.py check {email} {token}')
     print(f'  python addy_helper.py watch {email} {token}')
+
+
+def cmd_run(args):
+    """Satu kali jalan: buat alias -> tampilkan alias + email asli -> tunggu pesan."""
+    print("Membuat alias acak baru...")
+    result = _request("POST", f"{BASE}/api/email?name=addy.io", data={})
+    email = result["email"]
+    token = result["token"]
+    real = _read_env()
+
+    print("\n===== ALIAS & EMAIL ASLI =====")
+    print(f"ALIAS (dipakai daftar) : {email}")
+    print(f"TOKEN                  : {token}")
+    print(f"EMAIL ASLI (tujuan)    : {real or '(tidak terdeteksi — cek .env GMAIL_EMAIL)'}")
+    print(f"PROVIDER               : {result['provider']}")
+    print("==============================")
+    print(f"\n[COPY] {email}")
+    print(f"Daftar website menggunakan ALIAS di atas.")
+    print(f"Kode verifikasi akan diteruskan ke EMAIL ASLI: {real or '(lihat .env)'}.")
+
+    print(f"\nMenunggu pesan masuk (max {args.timeout}s)...")
+    start = time.time()
+    try:
+        while time.time() - start < args.timeout:
+            messages = _fetch_messages(email, token)
+            if messages:
+                _print_messages(messages)
+                print("\n[Selesai] Pesan masuk — script berhenti.")
+                return
+            time.sleep(args.interval)
+    except KeyboardInterrupt:
+        print("\nBerhenti.")
+    print(f"[Timeout] Tidak ada pesan dalam {args.timeout}s.")
+    print(f"Coba cek manual: python addy_helper.py check {email} {token}")
 
 
 def _fetch_messages(email, token):
@@ -110,6 +166,11 @@ def main():
     sub = p.add_subparsers(dest="command", required=True)
 
     sub.add_parser("gen", help="Membuat alias acak baru").set_defaults(func=cmd_gen)
+
+    pr = sub.add_parser("run", help="Satu kali jalan: buat alias, tampilkan, lalu tunggu pesan")
+    pr.add_argument("--timeout", type=int, default=10, help="Timeout detik (default 10)")
+    pr.add_argument("--interval", type=int, default=3, help="Interval polling detik (default 3)")
+    pr.set_defaults(func=cmd_run)
 
     pc = sub.add_parser("check", help="Cek pesan masuk")
     pc.add_argument("email")
