@@ -13,6 +13,7 @@ CARA PAKAI UTAMA (satu perintah, ada menu interaktif):
         5. Inbox       — diagnosis: lihat pesan terakhir di inbox asli (IMAP)
         6. Aliases     — cek alias addy.io (ada/aktif)
         7. Failed      — cek failed deliveries addy.io
+        8. Recipients  — cek tujuan forward addy.io
         0. Exit        — keluar
 
   Command lanjutan (CLI) tetap tersedia:
@@ -124,6 +125,7 @@ def _menu_box():
         ("5", "Inbox", "Diagnosis inbox asli"),
         ("6", "Aliases", "Cek alias addy.io"),
         ("7", "Failed", "Cek failed deliveries"),
+        ("8", "Recipients", "Cek tujuan forward"),
         ("0", "Exit", "Keluar dari script"),
     ]
     print(c("┌" + "─" * width + "┐", CYAN))
@@ -468,6 +470,41 @@ def cmd_failed(_args):
         print(f"  {c('Waktu  :', BOLD)} {c(str(tried), DIM)}")
         print()
     print(c("Mail yang gagal di-forward TIDAK akan sampai ke inbox asli.", YELLOW))
+
+
+def cmd_recipients(_args):
+    """Diagnosis: cek recipient (tujuan forward) addy.io via API langsung."""
+    try:
+        data = _addy_api_get("/recipients")
+    except ApiError as e:
+        msg = str(e)
+        if "404" in msg:
+            print(c("✗ Endpoint recipients tidak tersedia (404).", YELLOW))
+            return
+        _die(msg)
+    recips = data.get("data", data) if isinstance(data, dict) else data
+    if not isinstance(recips, list) or not recips:
+        print(c("(tidak ada recipient di akun addy.io ini)", DIM))
+        return
+    print(c(f"\n{len(recips)} recipient (tujuan forward) addy.io:\n", BOLD + GREEN))
+    for r in recips:
+        email = r.get("email", "?")
+        verified = r.get("email_verified_at")
+        active = r.get("active", True)
+        status = c("AKTIF", GREEN) if active else c("NON-AKTIF", RED)
+        verified_txt = c("terverifikasi", GREEN) if verified else c("TIDAK terverifikasi", RED)
+        print(f"  {c(email, CYAN)}   {status}   {verified_txt}")
+    print()
+    current = _get_real_inbox()
+    if current:
+        print(c(f"Inbox yang Anda cek (config.json): {current}", YELLOW))
+        matches = [r for r in recips if r.get("email", "").lower() == current.lower()]
+        if matches:
+            print(c("✓ Recipient addy.io sama dengan inbox yang dicek — seharusnya mail masuk.", GREEN))
+        else:
+            print(c("✗ Recipient addy.io BERBEDA dengan inbox yang dicek!", RED))
+            print(c("  Mail addy.io diteruskan ke recipient di atas, bukan ke inbox yang Anda cek.", YELLOW))
+            print(c("  Sinkronkan: ubah recipient addy.io atau set real_inbox ke recipient tersebut.", DIM))
 
 
 def _create_alias():
@@ -815,11 +852,13 @@ def menu_loop():
             cmd_aliases(None)
         elif choice == "7":
             cmd_failed(None)
+        elif choice == "8":
+            cmd_recipients(None)
         elif choice == "0":
             print(c("✓ Terima kasih, exit.", GREEN))
             break
         else:
-            print(c("[ERROR] Pilihan tidak valid (0/1/2/3/4/5/6/7).", RED))
+            print(c("[ERROR] Pilihan tidak valid (0/1/2/3/4/5/6/7/8).", RED))
 
 
 def main():
@@ -839,6 +878,8 @@ def main():
     sub.add_parser("aliases", help="Diagnosis: cek alias addy.io (ada/aktif)").set_defaults(func=cmd_aliases)
 
     sub.add_parser("failed", help="Diagnosis: cek failed deliveries addy.io").set_defaults(func=cmd_failed)
+
+    sub.add_parser("recipients", help="Diagnosis: cek tujuan forward addy.io").set_defaults(func=cmd_recipients)
 
     pr = sub.add_parser("run", help="Satu kali jalan: buat alias, tampilkan, lalu tunggu pesan")
     pr.add_argument("--timeout", type=int, default=10, help="Timeout detik (default 10)")
