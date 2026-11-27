@@ -324,40 +324,55 @@ def _read_env_value(key):
 
 
 def _imap_list_recent(limit=15):
-    """Diagnosis: tampilkan pesan-pesan terakhir di inbox asli via IMAP langsung."""
+    """Diagnosis: tampilkan pesan-pesan terakhir di inbox asli via IMAP langsung.
+
+    Membaca INBOX, SPAM dan TRASH — mail yang diteruskan addy.io sering
+    masuk SPAM di Gmail, jadi harus dicek juga.
+    """
     email, pw = _imap_credentials()
     if not email or not pw:
         _die("EMAIL ASLI atau App Password belum terisi. Lengkapi via menu 3/4.")
-    user, _ = email.split("@", 1)
     print(c(f"\n⏳  Menghubungi inbox asli {email} via IMAP...", CYAN))
     mail = imaplib.IMAP4_SSL("imap.gmail.com", 993, timeout=30)
     try:
         mail.login(email, pw)
-        mail.select("INBOX")
-        _, data = mail.search(None, "ALL")
-        uids = list(data[0].split()) if data[0] else []
-        if not uids:
-            print(c("(inbox asli kosong — tidak ada pesan sama sekali)", DIM))
-            return
-        uids = uids[-limit:]
-        print(c(f"\n{len(uids)} pesan terakhir di inbox asli:\n", BOLD + GREEN))
-        for uid in reversed(uids):
-            _, msg_data = mail.fetch(uid, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])")
-            if not msg_data or not msg_data[0]:
+        folders = [("INBOX", "Inbox"), ("SPAM", "Spam"), ("TRASH", "Trash")]
+        found_total = 0
+        for fname, flabel in folders:
+            try:
+                mail.select(fname)
+                _, data = mail.search(None, "ALL")
+            except imaplib.IMAP4.error:
                 continue
-            raw = msg_data[0][1].decode("utf-8", "replace")
-            from_v = to_v = sub_v = ""
-            for line in raw.splitlines():
-                if line.lower().startswith("from:"):
-                    from_v = line[5:].strip()
-                elif line.lower().startswith("subject:"):
-                    sub_v = line[8:].strip()
-                elif line.lower().startswith("date:"):
-                    to_v = line[5:].strip()
-            print(f"  {c('Dari   :', BOLD)} {c(from_v, CYAN)}")
-            print(f"  {c('Subjek :', BOLD)} {c(sub_v or '(tanpa subjek)', YELLOW)}")
-            print(f"  {c('Tanggal:', BOLD)} {c(to_v, DIM)}")
-            print()
+            uids = list(data[0].split()) if data[0] else []
+            if not uids:
+                if fname == "INBOX":
+                    print(c("(INBOX kosong)", DIM))
+                continue
+            uids = uids[-limit:]
+            found_total += len(uids)
+            print(c(f"\n{len(uids)} pesan terakhir di {flabel}:\n", BOLD + GREEN))
+            for uid in reversed(uids):
+                _, msg_data = mail.fetch(
+                    uid, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])"
+                )
+                if not msg_data or not msg_data[0]:
+                    continue
+                raw = msg_data[0][1].decode("utf-8", "replace")
+                from_v = to_v = sub_v = ""
+                for line in raw.splitlines():
+                    if line.lower().startswith("from:"):
+                        from_v = line[5:].strip()
+                    elif line.lower().startswith("subject:"):
+                        sub_v = line[8:].strip()
+                    elif line.lower().startswith("date:"):
+                        to_v = line[5:].strip()
+                print(f"  {c('Dari   :', BOLD)} {c(from_v, CYAN)}")
+                print(f"  {c('Subjek :', BOLD)} {c(sub_v or '(tanpa subjek)', YELLOW)}")
+                print(f"  {c('Tanggal:', BOLD)} {c(to_v, DIM)}")
+                print()
+        if found_total == 0:
+            print(c("(tidak ada pesan di INBOX/SPAM/TRASH)", DIM))
     except imaplib.IMAP4.error as e:
         _die(f"IMAP login gagal: {e}\nPeriksa Email + App Password (16 karakter tanpa spasi).")
     except Exception as e:

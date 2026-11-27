@@ -198,11 +198,21 @@ class AddyIOProvider(EmailProvider):
         return mail
 
     def _search_uids(self, mail: imaplib.IMAP4_SSL, to_addr: str) -> list[bytes]:
-        mail.select("INBOX")
-        # match the alias in To or Cc headers
+        """Search for the alias across INBOX, SPAM and TRASH.
+
+        addy.io-forwarded mail is often classified as spam by Gmail, so it
+        must be searched in the SPAM folder too — not just INBOX.
+        """
+        uids: list[bytes] = []
         crit = f'(OR (TO "{to_addr}") (CC "{to_addr}"))'
-        _, data = mail.search(None, crit)
-        return data[0].split() if data[0] else []
+        for folder in ("INBOX", "SPAM", "TRASH"):
+            try:
+                mail.select(folder)
+                _, data = mail.search(None, crit)
+                uids.extend(data[0].split() if data[0] else [])
+            except imaplib.IMAP4.error:
+                continue
+        return uids
 
     def _scan_recent_uids(
         self, mail: imaplib.IMAP4_SSL, to_addr: str, limit: int = 30
@@ -212,23 +222,26 @@ class AddyIOProvider(EmailProvider):
         addy.io forwards mail to the real inbox; depending on the mailer the
         alias may appear in To/Cc/X-Original-To/Delivered-To/etc. rather than
         a plain (TO "alias") match. Scanning recent headers catches all cases.
+        Searches INBOX, SPAM and TRASH.
         """
-        mail.select("INBOX")
-        _, data = mail.search(None, "ALL")
-        uids = list(data[0].split()) if data[0] else []
-        if not uids:
-            return []
-        # most recent `limit` messages
-        uids = uids[-limit:]
         needle = to_addr.lower()
         matched: list[bytes] = []
-        for uid in uids:
-            _, msg_data = mail.fetch(uid, "(BODY.PEEK[HEADER])")
-            if not msg_data or not msg_data[0]:
+        for folder in ("INBOX", "SPAM", "TRASH"):
+            try:
+                mail.select(folder)
+                _, data = mail.search(None, "ALL")
+                uids = list(data[0].split()) if data[0] else []
+                if not uids:
+                    continue
+                for uid in uids[-limit:]:
+                    _, msg_data = mail.fetch(uid, "(BODY.PEEK[HEADER])")
+                    if not msg_data or not msg_data[0]:
+                        continue
+                    raw = msg_data[0][1]
+                    if needle in raw.decode("utf-8", "replace").lower():
+                        matched.append(uid)
+            except imaplib.IMAP4.error:
                 continue
-            raw = msg_data[0][1]
-            if needle in raw.decode("utf-8", "replace").lower():
-                matched.append(uid)
         return matched
 
     # ------------------------------------------------------------------ interface
