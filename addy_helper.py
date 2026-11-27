@@ -410,9 +410,18 @@ def cmd_aliases(_args):
         email = a.get("email", "?")
         active = a.get("active", True)
         status = c("AKTIF", GREEN) if active else c("NON-AKTIF", RED)
-        print(f"  {c(email, CYAN)}   {status}")
+        fwd = a.get("emails_forwarded", 0) or 0
+        blocked = a.get("emails_blocked", 0) or 0
+        last_blocked = a.get("last_blocked")
+        extra = c(f"forwarded: {fwd}", DIM)
+        if blocked:
+            extra += "  " + c(f"blocked: {blocked}", RED)
+            if last_blocked:
+                extra += "  " + c(f"terakhir: {last_blocked}", DIM)
+        print(f"  {c(email, CYAN)}   {status}    {extra}")
     print()
     print(c("Tip: alias harus AKTIF agar addy.io meneruskan pesan ke inbox asli.", DIM))
+    print(c("  Jika blocked > 0: mail masuk tapi ditolak addy.io — tidak sampai inbox asli.", DIM))
 
 
 def cmd_failed(_args):
@@ -420,7 +429,12 @@ def cmd_failed(_args):
     try:
         data = _addy_api_get("/failed-deliveries", {"filter[email_type]": "inbound"})
     except ApiError as e:
-        _die(str(e))
+        msg = str(e)
+        if "404" in msg:
+            print(c("✗ Endpoint failed-deliveries tidak tersedia (404) untuk akun ini.", YELLOW))
+            print(c("  Gunakan menu 6. Aliases — menampilkan emails_forwarded/emails_blocked per alias.", DIM))
+            return
+        _die(msg)
     fails = data.get("data", data) if isinstance(data, dict) else data
     if not isinstance(fails, list) or not fails:
         print(c("✓ Tidak ada failed delivery — semua mail yang masuk berhasil di-forward.", GREEN))
