@@ -134,9 +134,22 @@ class AddyIOProvider(EmailProvider):
         }
 
     async def _pick_domain(self) -> str:
-        """Return the alias domain to use (override or first available)."""
+        """Return the alias domain to use (override, default_alias_domain, or /domains)."""
         if self._domain_override:
             return self._domain_override
+        # Prefer account-details default_alias_domain — reliable even for
+        # fresh accounts where the /domains list may be empty.
+        try:
+            resp = await self._client.get("/account-details", headers=self._headers())
+            resp.raise_for_status()
+            data = resp.json()
+            d = data.get("data", data) if isinstance(data, dict) else {}
+            dom = d.get("default_alias_domain") if isinstance(d, dict) else None
+            if dom:
+                return dom
+        except Exception as exc:
+            log.warning("addy.io: account-details lookup failed: %s", exc)
+        # Fallback: first domain from /domains list
         resp = await self._client.get("/domains", headers=self._headers())
         resp.raise_for_status()
         data = resp.json()
@@ -255,16 +268,30 @@ class AddyIOProvider(EmailProvider):
         return await asyncio.to_thread(_sync)
 
     async def get_domains(self) -> list[str]:
-        resp = await self._client.get("/domains", headers=self._headers())
-        resp.raise_for_status()
-        data = resp.json()
-        domains = data.get("data", data) if isinstance(data, dict) else data
-        result = []
-        if isinstance(domains, list):
-            for d in domains:
-                val = d.get("domain") or d.get("name")
-                if val:
-                    result.append(val)
+        result: list[str] = []
+        # default_alias_domain from account-details
+        try:
+            resp = await self._client.get("/account-details", headers=self._headers())
+            resp.raise_for_status()
+            data = resp.json()
+            d = data.get("data", data) if isinstance(data, dict) else {}
+            if isinstance(d, dict) and d.get("default_alias_domain"):
+                result.append(d["default_alias_domain"])
+        except Exception:
+            pass
+        # any domains from /domains list
+        try:
+            resp = await self._client.get("/domains", headers=self._headers())
+            resp.raise_for_status()
+            data = resp.json()
+            domains = data.get("data", data) if isinstance(data, dict) else data
+            if isinstance(domains, list):
+                for d in domains:
+                    val = d.get("domain") or d.get("name")
+                    if val and val not in result:
+                        result.append(val)
+        except Exception:
+            pass
         return result or [await self._pick_domain()]
 
     async def health_check(self) -> bool:
