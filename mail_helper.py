@@ -152,6 +152,7 @@ def _menu_box():
         ("3", "Add data", "Tambah akun baru"),
         ("4", "Set key", "Input key API SimpleLogin"),
         ("5", "Inbox", "Diagnosis inbox asli"),
+        ("6", "Delete", "Hapus alias"),
         ("0", "Exit", "Keluar dari script"),
     ]
     print(c("┌" + "─" * width + "┐", CYAN))
@@ -559,6 +560,11 @@ def _create_alias(provider="simplelogin"):
     return _request("POST", f"{BASE}/api/email?name={provider}", data={})
 
 
+def _delete_alias(email, token, provider="simplelogin"):
+    q = urllib.parse.urlencode({"token": token, "name": provider})
+    return _request("DELETE", f"{BASE}/api/email/{urllib.parse.quote(email)}?{q}")
+
+
 def _fetch_messages(email, token, provider="simplelogin"):
     q = urllib.parse.urlencode({"token": token, "name": provider})
     return _request("GET", f"{BASE}/api/email/{urllib.parse.quote(email)}/messages?{q}")
@@ -733,6 +739,81 @@ def cmd_check(args):
         provider = getattr(args, "provider", "simplelogin")
         messages = _fetch_messages(args.email, args.token, provider)
         _print_messages(messages)
+    except ApiError as e:
+        _die(str(e))
+
+
+def _sl_api_get(path, params=None):
+    """Call SimpleLogin API directly untuk diagnosis (cari token/alias id)."""
+    key = _get_api_key()
+    if not key:
+        _die("Key API SimpleLogin belum terisi. Gunakan menu 4. Set key.")
+    url = f"https://app.simplelogin.io/api{path}"
+    if params:
+        url += "?" + urllib.parse.urlencode(params)
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Authentication": key,
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read().decode() or "null")
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode()
+        raise ApiError(f"HTTP {e.code}: {detail}")
+    except urllib.error.URLError as e:
+        raise ApiError(f"Tidak bisa mencapai SimpleLogin: {e}")
+
+
+def _find_sl_token(email):
+    """Cari alias id (token) dari SimpleLogin berdasarkan email. Return str atau None."""
+    try:
+        data = _sl_api_get("/v2/aliases", {"page_id": 0})
+    except ApiError as e:
+        print(c(f"[WARN] Gagal cari token: {e}", YELLOW))
+        return None
+    aliases = data.get("aliases", data) if isinstance(data, dict) else data
+    if isinstance(aliases, list):
+        for a in reversed(aliases):
+            if a.get("email", "").lower() == email.lower():
+                return str(a.get("id", "") or "")
+    return None
+
+
+def cmd_del(args):
+    """Hapus alias SimpleLogin (via server) — juga hapus alias di SimpleLogin."""
+    try:
+        provider = getattr(args, "provider", "simplelogin")
+        email = (args.email or "").strip()
+        if not email:
+            _die("Email alias harus diisi.")
+        token = (args.token or "").strip()
+        # jika token tidak diisi, coba cari otomatis dari SimpleLogin API
+        if not token:
+            print(c("⏳  Mencari token alias di SimpleLogin...", CYAN))
+            token = _find_sl_token(email)
+            if token:
+                print(c(f"✓  Token ditemukan: {token}", GREEN))
+            else:
+                print(c("[ERROR] Token tidak ditemukan. Masukkan token secara manual.", RED))
+                token = input(c("Token (alias id): ", BOLD)).strip()
+                if not token:
+                    _die("Token tidak boleh kosong.")
+
+        print()
+        confirm = input(
+            c(f"Hapus alias {email} (token {token})? [Y/n]: ", BOLD)
+        ).strip().lower()
+        if confirm not in ("", "y", "yes"):
+            print(c("Penghapusan dibatalkan.", YELLOW))
+            return
+
+        result = _delete_alias(email, token, provider)
+        print(c(f"✓  Alias {email} dihapus.", GREEN))
+        print(c("  Alias juga dihapus di SimpleLogin, dan mail terkait dibersihkan dari inbox.", DIM))
     except ApiError as e:
         _die(str(e))
 
@@ -974,11 +1055,17 @@ def menu_loop():
             cmd_set_key(None)
         elif choice == "5":
             cmd_inbox(None)
+        elif choice == "6":
+            email = input(c("Email alias yang dihapus: ", BOLD)).strip()
+            if not email:
+                print(c("[ERROR] Email tidak boleh kosong.", RED))
+                continue
+            cmd_del(argparse.Namespace(email=email, token="", provider="simplelogin"))
         elif choice == "0":
             print(c("✓ Terima kasih, exit.", GREEN))
             break
         else:
-            print(c("[ERROR] Pilihan tidak valid (0/1/2/3/4/5).", RED))
+            print(c("[ERROR] Pilihan tidak valid (0/1/2/3/4/5/6).", RED))
 
 
 def main():
@@ -997,6 +1084,13 @@ def main():
     sub.add_parser("key", help="Input key API SimpleLogin ke config.json").set_defaults(func=cmd_set_key)
 
     sub.add_parser("inbox", help="Diagnosis: lihat pesan terakhir di inbox asli").set_defaults(func=cmd_inbox)
+
+    pd = sub.add_parser("del", help="Hapus alias (cari token otomatis jika tidak diisi)")
+    pd.add_argument("email", help="Email alias yang dihapus")
+    pd.add_argument("token", nargs="?", default="", help="Token alias id (opsional, dicari otomatis)")
+    pd.add_argument("--provider", default="simplelogin", choices=["simplelogin"],
+                    help="Provider alias (default: simplelogin)")
+    pd.set_defaults(func=cmd_del)
 
     pr = sub.add_parser("run", help="Satu kali jalan: buat alias, tampilkan, lalu tunggu pesan")
     pr.add_argument("--timeout", type=int, default=10, help="Timeout detik (default 10)")
