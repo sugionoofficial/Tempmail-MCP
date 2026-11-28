@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-GENERATE MAIL by Sugono Official
+GENERATE MAIL by Sugiono Official
 Tempmail-MCP helper — dua mode generate:
   1. Tag +   (Gmail)      → alias user+<tag>@gmail.com
   2. SimpleLogin           → alias acak @simplelogin.co / @simplelogin.com
@@ -152,13 +152,13 @@ def banner(title):
 
 
 def _header_block():
-    """Blok header premium — GENERATE MAIL by Sugono Official."""
+    """Blok header premium — GENERATE MAIL by Sugiono Official."""
     width = 56
     top = c("╔" + "═" * width + "╗", MAGENTA)
     bottom = c("╚" + "═" * width + "╝", MAGENTA)
     print(top)
     print(c("║", MAGENTA) + c("  GENERATE MAIL".ljust(width), BOLD + CYAN) + c("║", MAGENTA))
-    print(c("║", MAGENTA) + c("  by Sugono Official".ljust(width), BOLD + GREEN) + c("║", MAGENTA))
+    print(c("║", MAGENTA) + c("  by Sugiono Official".ljust(width), BOLD + GREEN) + c("║", MAGENTA))
     print(c("║", MAGENTA) + c("  Tempmail-MCP · Dua Mode Generate".ljust(width), DIM) + c("║", MAGENTA))
     print(bottom)
 
@@ -1228,7 +1228,7 @@ def menu_loop():
 
 def main():
     p = argparse.ArgumentParser(
-        description=c("GENERATE MAIL by Sugono Official — Tempmail-MCP", BOLD + CYAN)
+        description=c("GENERATE MAIL by Sugiono Official — Tempmail-MCP", BOLD + CYAN)
     )
     sub = p.add_subparsers(dest="command")
 
