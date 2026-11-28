@@ -249,6 +249,9 @@ def _request(method, url, data=None):
         raise ApiError(f"HTTP {e.code}: {detail}")
     except urllib.error.URLError as e:
         raise ApiError(f"Tidak bisa mencapai server: {e}\nPastikan server jalan: python -m src.main")
+    except (TimeoutError, OSError) as e:
+        # socket timeout / connection reset — don't crash the script
+        raise ApiError(f"Timeout/koneksi gagal: {e}\nPastikan server jalan dan respons dalam 30s.")
 
 
 def _read_env():
