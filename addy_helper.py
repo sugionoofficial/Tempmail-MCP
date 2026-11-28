@@ -39,9 +39,11 @@ Contoh:
 """
 import argparse
 import getpass
+import html
 import imaplib
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -594,6 +596,51 @@ def _fetch_messages(email, token, provider="addy.io"):
     return _request("GET", f"{BASE}/api/email/{urllib.parse.quote(email)}/messages?{q}")
 
 
+def _strip_html(text):
+    """Ubah body HTML menjadi teks bersih (tanpa tag) agar mudah dibaca/dicopy."""
+    if not text:
+        return ""
+    # hapus <style> dan <script> block sepenuhnya
+    text = re.sub(r"(?is)<(style|script).*?>.*?</\1>", " ", text)
+    # hapus semua tag HTML
+    text = re.sub(r"(?s)<[^>]+>", " ", text)
+    # decode entity HTML
+    text = html.unescape(text)
+    # rapikan spasi putih berlebih
+    text = re.sub(r"[ \t\xa0]+", " ", text)
+    text = re.sub(r"\n\s*\n+", "\n", text)
+    return text.strip()
+
+
+def _extract_code(text):
+    """Ekstrak kode verifikasi dari teks (angka/pola umum).
+
+    Mencari pola: 6-angka (ChatGPT/Google), 4-angka, 8-angka,
+    dan kode alfanumerik 6-8 karakter yang tampak seperti OTP.
+    Return string kode atau None.
+    """
+    if not text:
+        return None
+    plain = _strip_html(text) if "<" in text else text
+    # 6-digit (paling umum untuk ChatGPT/Google OTP)
+    m = re.search(r"(?<!\d)\d{6}(?!\d)", plain)
+    if m:
+        return m.group(0)
+    # 4-digit
+    m = re.search(r"(?<!\d)\d{4}(?!\d)", plain)
+    if m:
+        return m.group(0)
+    # 8-digit
+    m = re.search(r"(?<!\d)\d{8}(?!\d)", plain)
+    if m:
+        return m.group(0)
+    # kode alfanumerik 6-8 char (huruf+angka, tanpa spasi)
+    m = re.search(r"\b[A-Z0-9]{6,8}\b", plain)
+    if m:
+        return m.group(0)
+    return None
+
+
 def _print_messages(messages):
     if not messages:
         print(c("(belum ada pesan masuk)", DIM))
@@ -603,8 +650,18 @@ def _print_messages(messages):
         print(c(f"┌─ Pesan {i} " + "─" * 30, DIM))
         print(f"  {c('Dari  :', BOLD)} {c(m.get('from_addr') or '', CYAN)}")
         print(f"  {c('Subjek:', BOLD)} {c(m.get('subject') or '(tanpa subjek)', YELLOW)}")
-        body = m.get("body_text") or m.get("body_html") or ""
-        body_show = body[:600] + ("..." if len(body) > 600 else "")
+
+        raw_body = m.get("body_text") or m.get("body_html") or ""
+        body_plain = _strip_html(raw_body)
+
+        # Tampilkan kode verifikasi prominently jika terdeteksi
+        code = _extract_code(raw_body)
+        if code:
+            print(f"  {c('KODE :', BOLD + GREEN)} {c(code, BOLD + GREEN)}")
+            print(c("       (copy: tekan Ctrl+C di terminal, atau pilih kode di atas)", DIM))
+
+        # Tampilkan isi yang sudah dibersihkan (teks bersih, tidak HTML mentah)
+        body_show = body_plain[:800] + ("..." if len(body_plain) > 800 else "")
         print(f"  {c('Isi   :', BOLD)} {body_show}")
         print(f"  {c('ID    :', BOLD)} {c(m.get('id') or '', DIM)}")
         print(c("└" + "─" * 40, DIM))
