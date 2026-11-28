@@ -152,7 +152,7 @@ def _menu_box():
         ("3", "Add data", "Tambah akun baru"),
         ("4", "Set key", "Input key API SimpleLogin"),
         ("5", "Inbox", "Diagnosis inbox asli"),
-        ("6", "Delete", "Hapus alias"),
+        ("6", "Delete", "Hapus alias (pilih/all)"),
         ("0", "Exit", "Keluar dari script"),
     ]
     print(c("┌" + "─" * width + "┐", CYAN))
@@ -818,6 +818,92 @@ def cmd_del(args):
         _die(str(e))
 
 
+def _sl_list_aliases():
+    """Ambil daftar alias SimpleLogin. Return list[{id, email, ...}] atau []."""
+    try:
+        data = _sl_api_get("/v2/aliases", {"page_id": 0})
+    except ApiError as e:
+        print(c(f"[ERROR] Gagal mengambil daftar alias: {e}", RED))
+        return []
+    aliases = data.get("aliases", data) if isinstance(data, dict) else data
+    if isinstance(aliases, list):
+        # newest first
+        return list(reversed(aliases))
+    return []
+
+
+def _delete_alias_by_index(aliases, idx, provider="simplelogin"):
+    """Hapus satu alias berdasarkan indeks dalam daftar."""
+    item = aliases[idx]
+    email = item.get("email", "?")
+    token = str(item.get("id", "") or "")
+    print()
+    confirm = input(
+        c(f"Hapus alias {email} (token {token})? [Y/n]: ", BOLD)
+    ).strip().lower()
+    if confirm not in ("", "y", "yes"):
+        print(c("Penghapusan dibatalkan.", YELLOW))
+        return
+    try:
+        _delete_alias(email, token, provider)
+        print(c(f"✓  Alias {email} dihapus.", GREEN))
+    except ApiError as e:
+        print(c(f"[ERROR] Gagal hapus {email}: {e}", RED))
+
+
+def cmd_del_menu(_args=None):
+    """Menu Delete interaktif: tampilkan alias 1-10, pilih untuk hapus atau all."""
+    try:
+        provider = "simplelogin"
+        print(c("⏳  Mengambil daftar alias dari SimpleLogin...", CYAN))
+        aliases = _sl_list_aliases()
+        if not aliases:
+            print(c("(tidak ada alias di akun SimpleLogin ini)", DIM))
+            return
+
+        while True:
+            print()
+            print(c(f"{len(aliases)} alias ditemukan:\n", BOLD + GREEN))
+            for idx, a in enumerate(aliases, 1):
+                email = a.get("email", "?")
+                token = a.get("id", "")
+                fwd = a.get("nb_forward", 0) or 0
+                print(f"  {c(str(idx).rjust(2), BOLD)}. {c(email, CYAN)}   {c('id:' + str(token), DIM)}   {c('forwarded:' + str(fwd), DIM)}")
+            print()
+            choice = input(c("Delete [1-%d]  |  All [all]  |  Kembali [0]: " % len(aliases), BOLD)).strip().lower()
+            if choice == "0":
+                print(c("Kembali ke menu.", DIM))
+                return
+            if choice == "all":
+                print()
+                confirm = input(
+                    c(f"Hapus SEMUA {len(aliases)} alias? [Y/n]: ", BOLD)
+                ).strip().lower()
+                if confirm not in ("", "y", "yes"):
+                    print(c("Penghapusan dibatalkan.", YELLOW))
+                    continue
+                deleted = 0
+                for idx in range(len(aliases)):
+                    try:
+                        _delete_alias(aliases[idx].get("email", ""), str(aliases[idx].get("id", "") or ""), provider)
+                        deleted += 1
+                    except ApiError as e:
+                        print(c(f"[ERROR] Gagal hapus {aliases[idx].get('email', '?')}: {e}", RED))
+                print(c(f"✓  {deleted} alias dihapus.", GREEN))
+                return
+            if choice.isdigit() and 1 <= int(choice) <= len(aliases):
+                _delete_alias_by_index(aliases, int(choice) - 1, provider)
+                # refresh daftar setelah hapus
+                aliases = _sl_list_aliases()
+                if not aliases:
+                    print(c("✓  Semua alias telah dihapus.", GREEN))
+                    return
+            else:
+                print(c(f"[ERROR] Pilih angka 1-{len(aliases)}, 'all', atau 0.", RED))
+    except ApiError as e:
+        _die(str(e))
+
+
 def cmd_inbox(_args):
     """Diagnosis: tampilkan 10 pesan terakhir di inbox asli (IMAP langsung).
 
@@ -1056,11 +1142,7 @@ def menu_loop():
         elif choice == "5":
             cmd_inbox(None)
         elif choice == "6":
-            email = input(c("Email alias yang dihapus: ", BOLD)).strip()
-            if not email:
-                print(c("[ERROR] Email tidak boleh kosong.", RED))
-                continue
-            cmd_del(argparse.Namespace(email=email, token="", provider="simplelogin"))
+            cmd_del_menu()
         elif choice == "0":
             print(c("✓ Terima kasih, exit.", GREEN))
             break
