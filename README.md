@@ -1,5 +1,7 @@
 # Tempmail-MCP
 
+**By Sugiono Official**
+
 <p align="center">
   <img src=".github/image.png" alt="tempmail UI" width="900">
 </p>
@@ -7,19 +9,72 @@
 A self-hosted temporary email REST API with a built-in web UI and optional MCP server.
 Multiple disposable-inbox providers are aggregated behind a single API; broken providers are automatically detected and disabled at startup.
 
+Includes a cross-platform CLI helper — **GENERATE MAIL by Sugiono Official** (`mail_helper.py`) — for interactive generation, checking, and deleting of aliases with two modes (Tag+ Gmail and SimpleLogin).
+
 ---
 
 ## Features
 
 - **Multi-provider** — SimpleLogin, mail.tm, tempmail.io, Gmail (IMAP), mailticking, tempmailo, tempail
+- **Two alias modes** — **Tag+ (Gmail)** generates `user+<tag>@gmail.com`; **SimpleLogin** creates random unique aliases (`@simplelogin.co` / `@simplelogin.com` / `@sl.lan`) forwarding to your real inbox
 - **Auto-fallback** — picks the first healthy provider in priority order
 - **Circuit breaker** — providers that fail 3× in a row are auto-disabled; re-enable via API
 - **Startup health-check** — broken providers are disabled before the first request
+- **Resilient CLI** — delete/network/timeout errors show a status and keep the menu alive (no crashes); SimpleLogin 429 rate-limit is retried with backoff
 - **Web UI** — tab-based email client, multi-account, localStorage persistence, auto-refresh, browser notifications
 - **Shared/pinned emails** — pin mailboxes server-side so every client can use them
 - **Swagger docs** — `/docs`
 - **MCP server** — optional, usable standalone by Claude / any MCP client
 - **Cloudflare bypass** — via [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) for providers that require it
+
+---
+
+## CLI Helper — GENERATE MAIL by Sugiono Official
+
+A stdlib-only, cross-platform terminal helper (`mail_helper.py`) for everyday use.
+Run it directly to open an interactive menu loop:
+
+```bash
+python mail_helper.py
+```
+
+Menu:
+
+| Option | Action |
+|---|---|
+| `1` | **Check data** — show stored account data, then return to menu |
+| `2` | **Generate** — pick a mode (Tag+ / SimpleLogin), create an alias, wait for mail |
+| `3` | **Add data** — add a Gmail account (email + app password) to `config.json` |
+| `4` | **Set key** — enter the SimpleLogin API key |
+| `5` | **Inbox** — diagnose the real inbox (last 10 messages, open body) |
+| `6` | **Delete** — list aliases and delete one (`1-N`), all (`all`), or back (`0`) |
+| `0` | **Exit** |
+
+### Two generation modes
+
+| Mode | Alias shape | Requires |
+|---|---|---|
+| `tag` (Tag+ / Gmail) | `user+<tag>@gmail.com` | Gmail account (`GMAIL_EMAIL` + `GMAIL_APP_PASSWORD`) |
+| `simplelogin` | random unique alias (`@simplelogin.co` / `@simplelogin.com` / `@sl.lan`) | `SIMPLELOGIN_API_KEY` + `GMAIL_EMAIL` + `GMAIL_APP_PASSWORD` |
+
+`--mode` is optional on every command — if omitted, the helper asks interactively (for `gen`/`run`) or auto-detects from the email (for `check`/`watch`/`del`).
+
+### Commands
+
+```bash
+python mail_helper.py                 # interactive menu loop
+python mail_helper.py gen --mode tag               # create one alias (Tag+)
+python mail_helper.py gen --mode simplelogin       # create one alias (SimpleLogin)
+python mail_helper.py run --mode simplelogin --timeout 10 --interval 3   # create + wait for mail
+python mail_helper.py add                            # add a Gmail account
+python mail_helper.py key                            # set SimpleLogin API key
+python mail_helper.py inbox                          # diagnose real inbox
+python mail_helper.py del <email> [token]           # delete one alias (token auto-found if omitted)
+python mail_helper.py check <email> <token>         # list incoming messages
+python mail_helper.py watch <email> <token> [--timeout N --interval N]   # poll until mail arrives
+```
+
+Verification codes are extracted and shown prominently as a `KODE :` line. A delete that times out but actually succeeds is reported as success (verified against the live alias list), and SimpleLogin `429` rate-limits are retried with exponential backoff before failing gracefully.
 
 ---
 
@@ -204,7 +259,7 @@ Priority order (first healthy provider wins):
 |---|---|---|---|---|
 | 1 | `gmail` | IMAP | No | **Alias mode**: needs `GMAIL_EMAIL` + `GMAIL_APP_PASSWORD` — generates `user+<tag>@gmail.com` |
 | 1 | `gmail` | IMAP | No | **Pool mode**: needs `GMAIL_ACCOUNTS` (or `GMAIL_EMAILS` + `GMAIL_APP_PASSWORDS`) — hands out real, independent Gmail accounts round-robin |
-| 2 | `simplelogin` | REST API | No | Needs `SIMPLELOGIN_API_KEY` + `GMAIL_EMAIL` + `GMAIL_APP_PASSWORD` — creates **random unique aliases** (`@simplelogin.co` / `@simplelogin.com` / `@sl.lan`) that forward to your real inbox |
+| 2 | `simplelogin` | REST API | No | Needs `SIMPLELOGIN_API_KEY` + `GMAIL_EMAIL` + `GMAIL_APP_PASSWORD` — creates **random unique aliases** (`@simplelogin.co` / `@simplelogin.com` / `@sl.lan`) that forward to your real inbox. `429` rate-limits are retried with exponential backoff |
 | 3 | `mail.tm` | REST API | No | Most reliable fallback |
 | 3 | `tempmail.io` | REST API | No | Reliable |
 | 4 | `mailticking` | Scraping | Yes | CF-protected |
