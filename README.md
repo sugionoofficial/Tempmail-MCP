@@ -3,7 +3,7 @@
 **By Sugiono Official**
 
 <p align="center">
-  <img src=".github/image.png" alt="tempmail UI" width="900">
+  <img src=".github/image.png" alt="GENERATE MAIL by Sugiono Official helper menu" width="900">
 </p>
 
 A self-hosted temporary email REST API with a built-in web UI and optional MCP server.
@@ -75,6 +75,104 @@ python mail_helper.py watch <email> <token> [--timeout N --interval N]   # poll 
 ```
 
 Verification codes are extracted and shown prominently as a `KODE :` line. A delete that times out but actually succeeds is reported as success (verified against the live alias list), and SimpleLogin `429` rate-limits are retried with exponential backoff before failing gracefully.
+
+---
+
+## Running
+
+The server (`src/main.py`) and the CLI helper (`mail_helper.py`) run the same way on any platform. Pick the setup for your environment.
+
+### 1. Termux (Android)
+
+```bash
+# install python + git
+pkg update && pkg install python python-pip git
+
+# clone and enter
+git clone https://github.com/sugionoofficial/Tempmail-MCP.git
+cd Tempmail-MCP
+
+# virtual environment (recommended)
+python -m venv .venv
+. .venv/bin/activate
+
+# install server dependencies
+pip install -r src/requirements.txt
+
+# configure
+cp .env.example .env
+# edit .env (nano is available in Termux) — set GMAIL_* and/or SIMPLELOGIN_API_KEY
+
+# start the server (keep it running in a second Termux session/window)
+python -m src.main
+
+# in another session, use the helper
+python mail_helper.py
+```
+
+> **Tip:** use `termux-setup-storage` if you need to edit files from your phone's file manager.
+
+### 2. Terminal (Linux / macOS)
+
+```bash
+# clone and enter
+git clone https://github.com/sugionoofficial/Tempmail-MCP.git
+cd Tempmail-MCP
+
+# virtual environment (recommended)
+python3 -m venv .venv
+source .venv/bin/activate          # macOS/Linux
+
+# install server dependencies
+pip install -r src/requirements.txt
+
+# configure
+cp .env.example .env
+nano .env                          # set GMAIL_* and/or SIMPLELOGIN_API_KEY
+
+# start the server (keep it running in a separate terminal)
+python -m src.main
+
+# in another terminal, use the helper
+python mail_helper.py
+```
+
+### 3. PowerShell (Windows)
+
+```powershell
+# clone and enter (use ; as separator, not && in PowerShell 5.1)
+git clone https://github.com/sugionoofficial/Tempmail-MCP.git
+cd Tempmail-MCP
+
+# virtual environment
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+# if the activation is blocked by execution policy, run once:
+#   Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
+# install server dependencies
+pip install -r src\requirements.txt
+
+# configure (edit .env with notepad, Set-Content, or VS Code — nano is not available)
+notepad .env
+# set GMAIL_EMAIL, GMAIL_APP_PASSWORD, and/or SIMPLELOGIN_API_KEY
+
+# start the server (keep it running in a separate PowerShell window)
+python -m src.main
+
+# in another window, use the helper
+python mail_helper.py
+```
+
+> **PowerShell 5.1 note:** `&&` and `||` are not valid separators — use `;` or put commands on separate lines (or use PowerShell 7+).
+
+After the server is running on any of the above, open:
+
+- Web UI → http://localhost:8000
+- Swagger → http://localhost:8000/docs
+
+Then run `python mail_helper.py` for the interactive menu.
 
 ---
 
