@@ -1,7 +1,7 @@
 {
-  "_note": "Isi dengan data Anda. Tambahkan akun baru via menu 'Add data' di script. addy_api_key = key API addy.io. real_inbox = inbox asli tempat pesan addy.io diteruskan (dan dibaca via IMAP). app_password = App Password 16 karakter TANPA spasi.",
+  "_note": "Isi dengan data Anda. Tambahkan akun baru via menu 'Add data' di script. simplelogin_api_key = key API SimpleLogin. real_inbox = inbox asli tempat pesan SimpleLogin diteruskan (dan dibaca via IMAP). app_password = App Password 16 karakter TANPA spasi.",
   "real_inbox": "your-inbox@gmail.com",
-  "addy_api_key": "",
+  "simplelogin_api_key": "",
   "accounts": [
     {
       "email": "akun1@gmail.com",
