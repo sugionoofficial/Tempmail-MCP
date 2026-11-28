@@ -107,6 +107,14 @@ def c(text, color):
     return f"{color}{text}{RESET}"
 
 
+_ANSI_RE = re.compile(r"\033\[[0-9;]*m")
+
+
+def _plain_len(text):
+    """Panjang teks tanpa ANSI escape sequences (untuk perhitungan padding)."""
+    return len(_ANSI_RE.sub("", text))
+
+
 def spinner_frame(i):
     return _SPINNER[i % len(_SPINNER)]
 
@@ -182,13 +190,14 @@ def _menu_box():
 
 
 def info_box(rows):
-    """Tampilkan baris-baris dalam box rapi."""
-    width = 44
+    """Tampilkan baris-baris dalam box rapi — padding hitung label + nilai."""
+    width = 52
     print(c("┌" + "─" * width + "┐", DIM))
     for label, value in rows:
-        # label kanan, value kiri
-        pad = max(1, width - len(label) - 2)
-        print(c("│", DIM) + c(f" {label} ", BOLD) + c(" " * pad, DIM) + c(f"{value}", DIM) + c("│", DIM))
+        val_str = str(value)
+        # 1 (│) + 1 spasi + label + 1 spasi + value + pad + 1 (│) = width + 2
+        pad = max(1, width - len(label) - _plain_len(val_str) - 2)
+        print(c("│", DIM) + c(f" {label} ", BOLD) + c(val_str, DIM) + c(" " * pad, DIM) + c("│", DIM))
     print(c("└" + "─" * width + "┘", DIM))
 
 
