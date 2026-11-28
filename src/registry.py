@@ -21,6 +21,7 @@ from .providers import (
     GmailProvider,
     MailTickingProvider,
     MailTmProvider,
+    SimpleLoginProvider,
     TempAilProvider,
     TempMailIO,
     TempMailoProvider,
@@ -42,6 +43,7 @@ MAX_CONSECUTIVE_FAILURES = 3
 PRIORITY = [
     "gmail",        # IMAP +tag aliases (only if creds set)
     "addy.io",      # random aliases forwarding to real inbox (if ADDY_API_KEY set)
+    "simplelogin",  # random aliases forwarding to real inbox (if SIMPLELOGIN_API_KEY set)
     "mail.tm",      # clean REST API, real temp domains
     "tempmail.io",  # direct API
     "mailticking",  # Gmail +tag via FlareSolverr
@@ -196,6 +198,15 @@ async def startup() -> None:
             log.warning("addy.io provider skipped: %s", exc)
     else:
         log.info("addy.io provider skipped (ADDY_API_KEY / GMAIL_EMAIL / GMAIL_APP_PASSWORD not set)")
+
+    if os.getenv("SIMPLELOGIN_API_KEY") and os.getenv("GMAIL_EMAIL") and os.getenv("GMAIL_APP_PASSWORD"):
+        try:
+            register(SimpleLoginProvider())
+            log.info("simplelogin provider registered")
+        except Exception as exc:
+            log.warning("simplelogin provider skipped: %s", exc)
+    else:
+        log.info("simplelogin provider skipped (SIMPLELOGIN_API_KEY / GMAIL_EMAIL / GMAIL_APP_PASSWORD not set)")
 
     if os.getenv("HEALTH_CHECK_ON_STARTUP", "true").lower() not in ("0", "false", "no"):
         log.info("Running startup health-checks on all providers…")
