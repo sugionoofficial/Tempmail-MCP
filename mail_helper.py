@@ -1,38 +1,51 @@
 #!/usr/bin/env python3
 """
-Helper untuk provider SimpleLogin pada Tempmail-MCP.
+GENERATE MAIL by Sugono Official
+Tempmail-MCP helper — dua mode generate:
+  1. Tag +   (Gmail)      → alias user+<tag>@gmail.com
+  2. SimpleLogin           → alias acak @simplelogin.co / @simplelogin.com
+
 Tidak perlu install library tambahan (hanya stdlib Python).
 
 CARA PAKAI UTAMA (satu perintah, ada menu interaktif):
   python mail_helper.py
       Membuka menu loop dengan opsi:
         1. Check data  — tampilkan data akun (lalu kembali ke menu)
-        2. Start       — buat alias acak + tunggu pesan masuk
+        2. Generate    — pilih mode (Tag+ / SimpleLogin), buat alias, tunggu pesan
         3. Add data    — tambah akun Gmail baru (input email + app password)
-        4. Set SL key  — input key API SimpleLogin (disimpan di config.json)
-        5. Inbox       — diagnosis: lihat pesan terakhir di inbox asli (IMAP)
+        4. Set key     — input key API SimpleLogin (disimpan di config.json)
+        5. Inbox       — diagnosis: lihat 10 pesan terakhir + buka isi
+        6. Delete      — hapus alias (pilih 1-10 / all / 0 kembali)
         0. Exit        — keluar
 
   Command lanjutan (CLI) tetap tersedia:
   python mail_helper.py add
       Menambah akun Gmail baru ke config.json via input (tanpa menu).
 
-  python mail_helper.py run [--timeout 10]
-      Satu kali jalan: buat alias, tampilkan alias + EMAIL ASLI, lalu tunggu pesan.
+  python mail_helper.py run [--mode tag|simplelogin] [--timeout 10]
+      Satu kali jalan: pilih mode, buat alias, tampilkan, lalu tunggu pesan.
 
-  python mail_helper.py gen
-      Membuat alias acak baru dan menampilkan email + token.
+  python mail_helper.py gen [--mode tag|simplelogin]
+      Membuat alias baru (Tag+ atau SimpleLogin) dan menampilkan email + token.
 
-  python mail_helper.py check <email> <token>
+  python mail_helper.py check <email> <token> [--mode tag|simplelogin]
       Menampilkan pesan-pesan yang masuk ke alias tersebut.
 
-  python mail_helper.py watch <email> <token> [--timeout 10]
+  python mail_helper.py watch <email> <token> [--mode tag|simplelogin] [--timeout 10]
       Polling otomatis sampai pesan masuk.
+
+  python mail_helper.py del <email> [token] [--mode tag|simplelogin]
+      Hapus alias.
+
+Mode bisa juga di-auto-detect dari email (gmail.com → tag, simplelogin → simplelogin),
+jadi --mode opsional saat check/watch/del.
 
 Contoh:
   python mail_helper.py
-  python mail_helper.py run
-  python mail_helper.py check 49ae604b@simplelogin.com 53705491 --provider simplelogin
+  python mail_helper.py run --mode tag
+  python mail_helper.py gen --mode simplelogin
+  python mail_helper.py check user+abc123@gmail.com abc123
+  python mail_helper.py check 49ae604b@simplelogin.com 53705491
 """
 import argparse
 import email as email_lib
@@ -131,15 +144,14 @@ def banner(title):
 
 
 def _header_block():
-    """Blok header keren yang muncul di awal."""
+    """Blok header premium — GENERATE MAIL by Sugono Official."""
     width = 56
     top = c("╔" + "═" * width + "╗", MAGENTA)
     bottom = c("╚" + "═" * width + "╝", MAGENTA)
-    line1 = ("  MAIL HELPER").ljust(width)
-    line2 = ("  Tempmail-MCP · Menu Interaktif").ljust(width)
     print(top)
-    print(c("║", MAGENTA) + c(line1, BOLD + CYAN) + c("║", MAGENTA))
-    print(c("║", MAGENTA) + c(line2, DIM) + c("║", MAGENTA))
+    print(c("║", MAGENTA) + c("  GENERATE MAIL".ljust(width), BOLD + CYAN) + c("║", MAGENTA))
+    print(c("║", MAGENTA) + c("  by Sugono Official".ljust(width), BOLD + GREEN) + c("║", MAGENTA))
+    print(c("║", MAGENTA) + c("  Tempmail-MCP · Dua Mode Generate".ljust(width), DIM) + c("║", MAGENTA))
     print(bottom)
 
 
@@ -148,7 +160,7 @@ def _menu_box():
     width = 56
     rows = [
         ("1", "Check data", "Tampilkan data akun"),
-        ("2", "Start", "Buat alias + tunggu pesan"),
+        ("2", "Generate", "Tag+ / SimpleLogin + tunggu"),
         ("3", "Add data", "Tambah akun baru"),
         ("4", "Set key", "Input key API SimpleLogin"),
         ("5", "Inbox", "Diagnosis inbox asli"),
@@ -556,6 +568,48 @@ def _imap_list_recent(limit=15):
             pass
 
 
+# mode -> provider name mapping (server API name)
+_MODE_PROVIDER = {
+    "tag": "gmail",
+    "simplelogin": "simplelogin",
+}
+
+
+def _mode_provider(mode):
+    """Ubah mode ('tag'/'simplelogin') ke nama provider server."""
+    return _MODE_PROVIDER.get(mode, "simplelogin")
+
+
+def _detect_mode(email):
+    """Auto-detect mode dari email: gmail.com -> tag, simplelogin -> simplelogin."""
+    e = (email or "").lower()
+    if "@gmail.com" in e:
+        return "tag"
+    return "simplelogin"
+
+
+def _choose_mode():
+    """Tampilkan pilihan mode generate. Return 'tag' atau 'simplelogin'."""
+    print()
+    print(c("┌" + "─" * 48 + "┐", MAGENTA))
+    print(c("│", MAGENTA) + c("  PILIH MODE GENERATE", BOLD + CYAN) + c("│", MAGENTA))
+    print(c("├" + "─" * 48 + "┤", MAGENTA))
+    print(c("│", MAGENTA) + c("  [ 1 ]  TAG + (Gmail)", BOLD) + c("  user+<tag>@gmail.com", DIM) + c("│", MAGENTA))
+    print(c("│", MAGENTA) + c("  [ 2 ]  SIMPLELOGIN", BOLD) + c("   acak @simplelogin.co", DIM) + c("│", MAGENTA))
+    print(c("└" + "─" * 48 + "┘", MAGENTA))
+    while True:
+        try:
+            choice = input(c("\n  ❯ Mode [1/2]: ", BOLD)).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return "simplelogin"
+        if choice in ("1", "tag", "gmail"):
+            return "tag"
+        if choice in ("2", "simplelogin", "sl"):
+            return "simplelogin"
+        print(c("[ERROR] Pilih 1 (Tag+) atau 2 (SimpleLogin).", RED))
+
+
 def _create_alias(provider="simplelogin"):
     return _request("POST", f"{BASE}/api/email?name={provider}", data={})
 
@@ -644,9 +698,11 @@ def _print_messages(messages):
 
 def cmd_gen(args):
     try:
-        provider = getattr(args, "provider", "simplelogin")
-        print(c(f"⏳  Membuat alias acak baru ({provider})...", CYAN))
-        result = _with_spinner("Membuat alias acak baru", lambda: _create_alias(provider))
+        mode = getattr(args, "mode", None) or _choose_mode()
+        provider = _mode_provider(mode)
+        mode_label = "TAG + (Gmail)" if mode == "tag" else "SIMPLELOGIN"
+        print(c(f"⏳  Membuat alias baru — {mode_label}...", CYAN))
+        result = _with_spinner("Membuat alias baru", lambda: _create_alias(provider))
         email = result["email"]
         token = result["token"]
         real = _get_real_inbox()
@@ -656,6 +712,7 @@ def cmd_gen(args):
         rows = [
             ("EMAIL", c(email, BOLD + GREEN)),
             ("TOKEN", c(token, DIM)),
+            ("MODE", mode_label),
             ("PROVIDER", result["provider"]),
         ]
         if real:
@@ -669,8 +726,8 @@ def cmd_gen(args):
             print(c(f"Akun terkonfigurasi ({len(accounts)}): {emails}", DIM))
             print()
         print(c("Gunakan EMAIL ini untuk mendaftar. Cek pesan dengan:", DIM))
-        print(f"  python mail_helper.py check {email} {token} --provider {provider}")
-        print(f"  python mail_helper.py watch {email} {token} --provider {provider}")
+        print(f"  python mail_helper.py check {email} {token} --mode {mode}")
+        print(f"  python mail_helper.py watch {email} {token} --mode {mode}")
     except ApiError as e:
         clear_line()
         _die(str(e))
@@ -678,10 +735,12 @@ def cmd_gen(args):
 
 def cmd_run(args):
     try:
-        provider = getattr(args, "provider", "simplelogin")
-        banner("GENERATE ALIAS")
-        print(c(f"⏳  Membuat alias acak baru ({provider})...", CYAN))
-        result = _with_spinner("Membuat alias acak baru", lambda: _create_alias(provider))
+        mode = getattr(args, "mode", None) or _choose_mode()
+        provider = _mode_provider(mode)
+        mode_label = "TAG + (Gmail)" if mode == "tag" else "SIMPLELOGIN"
+        banner("GENERATE MAIL")
+        print(c(f"⏳  Membuat alias baru — {mode_label}...", CYAN))
+        result = _with_spinner("Membuat alias baru", lambda: _create_alias(provider))
         email = result["email"]
         token = result["token"]
         real = _get_real_inbox()
@@ -692,6 +751,7 @@ def cmd_run(args):
         rows = [
             ("ALIAS", c(email, BOLD + GREEN)),
             ("TOKEN", c(token, DIM)),
+            ("MODE", mode_label),
             ("EMAIL ASLI", c(real or "(tidak terdeteksi)", YELLOW)),
             ("PROVIDER", result["provider"]),
         ]
@@ -728,7 +788,7 @@ def cmd_run(args):
             print(c("\nBerhenti.", YELLOW))
         clear_line()
         print(c(f"✗  [Timeout] Tidak ada pesan dalam {args.timeout}s.", YELLOW))
-        print(c(f"Coba cek manual: python mail_helper.py check {email} {token} --provider {provider}", DIM))
+        print(c(f"Coba cek manual: python mail_helper.py check {email} {token} --mode {mode}", DIM))
     except ApiError as e:
         clear_line()
         _die(str(e))
@@ -736,7 +796,8 @@ def cmd_run(args):
 
 def cmd_check(args):
     try:
-        provider = getattr(args, "provider", "simplelogin")
+        mode = getattr(args, "mode", None) or _detect_mode(args.email)
+        provider = _mode_provider(mode)
         messages = _fetch_messages(args.email, args.token, provider)
         _print_messages(messages)
     except ApiError as e:
@@ -784,15 +845,16 @@ def _find_sl_token(email):
 
 
 def cmd_del(args):
-    """Hapus alias SimpleLogin (via server) — juga hapus alias di SimpleLogin."""
+    """Hapus alias (via server) — SimpleLogin dihapus di SimpleLogin, Gmail tag hanya clear mail."""
     try:
-        provider = getattr(args, "provider", "simplelogin")
+        mode = getattr(args, "mode", None) or _detect_mode(args.email or "")
+        provider = _mode_provider(mode)
         email = (args.email or "").strip()
         if not email:
             _die("Email alias harus diisi.")
         token = (args.token or "").strip()
-        # jika token tidak diisi, coba cari otomatis dari SimpleLogin API
-        if not token:
+        # jika token tidak diisi, coba cari otomatis (hanya SimpleLogin punya alias id)
+        if not token and mode == "simplelogin":
             print(c("⏳  Mencari token alias di SimpleLogin...", CYAN))
             token = _find_sl_token(email)
             if token:
@@ -813,7 +875,10 @@ def cmd_del(args):
 
         result = _delete_alias(email, token, provider)
         print(c(f"✓  Alias {email} dihapus.", GREEN))
-        print(c("  Alias juga dihapus di SimpleLogin, dan mail terkait dibersihkan dari inbox.", DIM))
+        if mode == "simplelogin":
+            print(c("  Alias dihapus di SimpleLogin, dan mail terkait dibersihkan dari inbox.", DIM))
+        else:
+            print(c("  Mail terkait dibersihkan dari inbox (alias Gmail tag tidak perlu dihapus).", DIM))
     except ApiError as e:
         _die(str(e))
 
@@ -915,7 +980,8 @@ def cmd_inbox(_args):
 
 def cmd_watch(args):
     try:
-        provider = getattr(args, "provider", "simplelogin")
+        mode = getattr(args, "mode", None) or _detect_mode(args.email)
+        provider = _mode_provider(mode)
         print(c(f"⏳  Menunggu pesan untuk {args.email} (max {args.timeout}s)...", CYAN))
         start = time.time()
         i = 0
@@ -1126,6 +1192,7 @@ def menu_loop():
         if choice == "1":
             _show_data()
         elif choice == "2":
+            mode = _choose_mode()
             timeout_str = input(c("Timeout (detik, default 10): ", BOLD)).strip()
             try:
                 timeout = int(timeout_str) if timeout_str else 10
@@ -1134,7 +1201,7 @@ def menu_loop():
             if timeout <= 0:
                 print(c("[ERROR] Timeout harus > 0.", RED))
                 continue
-            cmd_run(argparse.Namespace(timeout=timeout, interval=3, provider="simplelogin"))
+            cmd_run(argparse.Namespace(timeout=timeout, interval=3, mode=mode))
         elif choice == "3":
             cmd_add(None)
         elif choice == "4":
@@ -1152,40 +1219,40 @@ def menu_loop():
 
 def main():
     p = argparse.ArgumentParser(
-        description=c("Helper SimpleLogin untuk Tempmail-MCP — menu interaktif", BOLD + CYAN)
+        description=c("GENERATE MAIL by Sugono Official — Tempmail-MCP", BOLD + CYAN)
     )
     sub = p.add_subparsers(dest="command")
 
-    pg = sub.add_parser("gen", help="Membuat alias acak baru")
-    pg.add_argument("--provider", default="simplelogin", choices=["simplelogin"],
-                    help="Provider alias (default: simplelogin)")
+    pg = sub.add_parser("gen", help="Membuat alias baru (tanya mode jika tidak --mode)")
+    pg.add_argument("--mode", default=None, choices=["tag", "simplelogin"],
+                    help="Mode generate: tag (Gmail +) atau simplelogin")
     pg.set_defaults(func=cmd_gen)
 
     sub.add_parser("add", help="Tambah akun Gmail baru ke config.json (input email + app password)").set_defaults(func=cmd_add)
 
     sub.add_parser("key", help="Input key API SimpleLogin ke config.json").set_defaults(func=cmd_set_key)
 
-    sub.add_parser("inbox", help="Diagnosis: lihat pesan terakhir di inbox asli").set_defaults(func=cmd_inbox)
+    sub.add_parser("inbox", help="Diagnosis: lihat 10 pesan terakhir + buka isi").set_defaults(func=cmd_inbox)
 
     pd = sub.add_parser("del", help="Hapus alias (cari token otomatis jika tidak diisi)")
     pd.add_argument("email", help="Email alias yang dihapus")
     pd.add_argument("token", nargs="?", default="", help="Token alias id (opsional, dicari otomatis)")
-    pd.add_argument("--provider", default="simplelogin", choices=["simplelogin"],
-                    help="Provider alias (default: simplelogin)")
+    pd.add_argument("--mode", default=None, choices=["tag", "simplelogin"],
+                    help="Mode alias (auto-detect jika tidak diisi)")
     pd.set_defaults(func=cmd_del)
 
-    pr = sub.add_parser("run", help="Satu kali jalan: buat alias, tampilkan, lalu tunggu pesan")
+    pr = sub.add_parser("run", help="Satu kali jalan: pilih mode, buat alias, tunggu pesan")
     pr.add_argument("--timeout", type=int, default=10, help="Timeout detik (default 10)")
     pr.add_argument("--interval", type=int, default=3, help="Interval polling detik (default 3)")
-    pr.add_argument("--provider", default="simplelogin", choices=["simplelogin"],
-                    help="Provider alias (default: simplelogin)")
+    pr.add_argument("--mode", default=None, choices=["tag", "simplelogin"],
+                    help="Mode generate: tag (Gmail +) atau simplelogin")
     pr.set_defaults(func=cmd_run)
 
     pc = sub.add_parser("check", help="Cek pesan masuk")
     pc.add_argument("email")
     pc.add_argument("token")
-    pc.add_argument("--provider", default="simplelogin", choices=["simplelogin"],
-                    help="Provider alias (default: simplelogin)")
+    pc.add_argument("--mode", default=None, choices=["tag", "simplelogin"],
+                    help="Mode alias (auto-detect jika tidak diisi)")
     pc.set_defaults(func=cmd_check)
 
     pw = sub.add_parser("watch", help="Polling otomatis sampai pesan masuk")
@@ -1193,8 +1260,8 @@ def main():
     pw.add_argument("token")
     pw.add_argument("--timeout", type=int, default=10, help="Timeout detik (default 10)")
     pw.add_argument("--interval", type=int, default=3, help="Interval polling detik (default 3)")
-    pw.add_argument("--provider", default="simplelogin", choices=["simplelogin"],
-                    help="Provider alias (default: simplelogin)")
+    pw.add_argument("--mode", default=None, choices=["tag", "simplelogin"],
+                    help="Mode alias (auto-detect jika tidak diisi)")
     pw.set_defaults(func=cmd_watch)
 
     args = p.parse_args()
