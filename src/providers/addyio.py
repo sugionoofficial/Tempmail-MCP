@@ -197,52 +197,52 @@ class AddyIOProvider(EmailProvider):
         mail.login(self._gmail_address, self._gmail_password)
         return mail
 
-    def _search_uids(self, mail: imaplib.IMAP4_SSL, to_addr: str) -> list[bytes]:
-        """Search for the alias across INBOX, SPAM and TRASH.
+    def _collect_matching(
+        self, mail: imaplib.IMAP4_SSL, to_addr: str
+    ) -> list[tuple[str, bytes]]:
+        """Find messages matching the alias across INBOX, SPAM and TRASH.
+
+        Returns a list of (folder, uid) so callers can operate (fetch/store)
+        on each message in the correct folder. Each folder is selected,
+        searched, and (fallback) scanned while it is the active selection,
+        which keeps the IMAP connection in a valid SELECTED state.
 
         addy.io-forwarded mail is often classified as spam by Gmail, so it
         must be searched in the SPAM folder too — not just INBOX.
         """
-        uids: list[bytes] = []
         crit = f'(OR (TO "{to_addr}") (CC "{to_addr}"))'
-        for folder in ("INBOX", "SPAM", "TRASH"):
+        needle = to_addr.lower()
+        # Gmail IMAP folder names — try system + Gmail-prefixed variants.
+        folders = ("INBOX", "[Gmail]/Spam", "SPAM", "[Gmail]/Trash", "TRASH")
+        results: list[tuple[str, bytes]] = []
+        for folder in folders:
             try:
                 mail.select(folder)
-                _, data = mail.search(None, crit)
-                uids.extend(data[0].split() if data[0] else [])
             except imaplib.IMAP4.error:
                 continue
-        return uids
-
-    def _scan_recent_uids(
-        self, mail: imaplib.IMAP4_SSL, to_addr: str, limit: int = 30
-    ) -> list[bytes]:
-        """Fallback: fetch recent messages and match the alias in ANY header.
-
-        addy.io forwards mail to the real inbox; depending on the mailer the
-        alias may appear in To/Cc/X-Original-To/Delivered-To/etc. rather than
-        a plain (TO "alias") match. Scanning recent headers catches all cases.
-        Searches INBOX, SPAM and TRASH.
-        """
-        needle = to_addr.lower()
-        matched: list[bytes] = []
-        for folder in ("INBOX", "SPAM", "TRASH"):
+            # direct search by To/Cc
             try:
-                mail.select(folder)
-                _, data = mail.search(None, "ALL")
+                _, data = mail.search(None, crit)
                 uids = list(data[0].split()) if data[0] else []
-                if not uids:
-                    continue
-                for uid in uids[-limit:]:
+            except imaplib.IMAP4.error:
+                uids = []
+            # fallback: scan recent headers for the alias anywhere
+            if not uids:
+                try:
+                    _, data = mail.search(None, "ALL")
+                    all_uids = list(data[0].split()) if data[0] else []
+                except imaplib.IMAP4.error:
+                    all_uids = []
+                for uid in all_uids[-30:]:
                     _, msg_data = mail.fetch(uid, "(BODY.PEEK[HEADER])")
                     if not msg_data or not msg_data[0]:
                         continue
                     raw = msg_data[0][1]
                     if needle in raw.decode("utf-8", "replace").lower():
-                        matched.append(uid)
-            except imaplib.IMAP4.error:
-                continue
-        return matched
+                        uids.append(uid)
+            for uid in uids:
+                results.append((folder, uid))
+        return results
 
     # ------------------------------------------------------------------ interface
 
@@ -259,16 +259,19 @@ class AddyIOProvider(EmailProvider):
         def _sync() -> list[Message]:
             mail = self._connect_imap()
             try:
-                uids = self._search_uids(mail, account.email)
-                if not uids:
-                    # fallback: scan recent headers for the alias
-                    uids = self._scan_recent_uids(mail, account.email)
+                matches = self._collect_matching(mail, account.email)
                 messages = []
-                for uid in uids:
-                    _, msg_data = mail.fetch(uid, "(RFC822)")
-                    messages.append(
-                        _parse_imap_msg(uid.decode(), msg_data[0][1], account.email)
-                    )
+                for folder, uid in matches:
+                    # re-select the folder so FETCH runs in a valid SELECTED state
+                    try:
+                        mail.select(folder)
+                        _, msg_data = mail.fetch(uid, "(RFC822)")
+                    except imaplib.IMAP4.error:
+                        continue
+                    if msg_data and msg_data[0]:
+                        messages.append(
+                            _parse_imap_msg(uid.decode(), msg_data[0][1], account.email)
+                        )
                 return messages
             finally:
                 mail.logout()
@@ -302,9 +305,13 @@ class AddyIOProvider(EmailProvider):
         def _sync() -> bool:
             mail = self._connect_imap()
             try:
-                uids = self._search_uids(mail, account.email)
-                for uid in uids:
-                    mail.store(uid, "+FLAGS", "\\Deleted")
+                matches = self._collect_matching(mail, account.email)
+                for folder, uid in matches:
+                    try:
+                        mail.select(folder)
+                        mail.store(uid, "+FLAGS", "\\Deleted")
+                    except imaplib.IMAP4.error:
+                        continue
                 mail.expunge()
                 return True
             finally:
