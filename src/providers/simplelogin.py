@@ -135,11 +135,30 @@ class SimpleLoginProvider(EmailProvider):
         )
         resp.raise_for_status()
         data = resp.json()
-        alias = data.get("alias", data) if isinstance(data, dict) else data
-        email = alias.get("email")
-        alias_id = str(alias.get("id", ""))
+
+        # The response shape varies across SimpleLogin versions:
+        #   - {"alias": "email@sl.lan"}            (alias is a string)
+        #   - {"alias": {"email": ..., "id": ...}} (alias is a dict)
+        #   - {"email": ..., "id": ...}             (flat alias dict)
+        #   - "email@sl.lan"                       (bare string)
+        email: Optional[str] = None
+        alias_id = ""
+        if isinstance(data, str):
+            email = data
+        elif isinstance(data, dict):
+            alias = data.get("alias")
+            if isinstance(alias, str):
+                email = alias
+            elif isinstance(alias, dict):
+                email = alias.get("email")
+                alias_id = str(alias.get("id", "") or "")
+            if not email:
+                email = data.get("email")
+            if not alias_id:
+                alias_id = str(data.get("id", "") or "")
+
         if not email:
-            raise ValueError(f"SimpleLogin create response missing email: {data}")
+            raise ValueError(f"SimpleLogin create response missing email: {data!r}")
         if not alias_id:
             alias_id = await self._find_alias_id(email)
         return email, alias_id
@@ -154,7 +173,9 @@ class SimpleLoginProvider(EmailProvider):
         data = resp.json()
         aliases = data.get("aliases", data) if isinstance(data, dict) else data
         if isinstance(aliases, list):
-            for a in aliases:
+            # The freshly-created alias is the newest, so walk from the end
+            # and return the first exact match.
+            for a in reversed(aliases):
                 if a.get("email") == email:
                     return str(a.get("id", ""))
         raise ValueError(f"SimpleLogin alias not found for {email}")
