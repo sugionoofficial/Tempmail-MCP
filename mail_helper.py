@@ -1,41 +1,38 @@
 #!/usr/bin/env python3
 """
-Helper untuk provider addy.io pada Tempmail-MCP.
+Helper untuk provider SimpleLogin pada Tempmail-MCP.
 Tidak perlu install library tambahan (hanya stdlib Python).
 
 CARA PAKAI UTAMA (satu perintah, ada menu interaktif):
-  python addy_helper.py
+  python mail_helper.py
       Membuka menu loop dengan opsi:
         1. Check data  — tampilkan data akun (lalu kembali ke menu)
         2. Start       — buat alias acak + tunggu pesan masuk
         3. Add data    — tambah akun Gmail baru (input email + app password)
-        4. Set key     — input key API addy.io (disimpan di config.json)
+        4. Set SL key  — input key API SimpleLogin (disimpan di config.json)
         5. Inbox       — diagnosis: lihat pesan terakhir di inbox asli (IMAP)
-        6. Aliases     — cek alias addy.io (ada/aktif)
-        7. Failed      — cek failed deliveries addy.io
-        8. Recipients  — cek tujuan forward addy.io
         0. Exit        — keluar
 
   Command lanjutan (CLI) tetap tersedia:
-  python addy_helper.py add
+  python mail_helper.py add
       Menambah akun Gmail baru ke config.json via input (tanpa menu).
 
-  python addy_helper.py run [--timeout 10]
+  python mail_helper.py run [--timeout 10]
       Satu kali jalan: buat alias, tampilkan alias + EMAIL ASLI, lalu tunggu pesan.
 
-  python addy_helper.py gen
+  python mail_helper.py gen
       Membuat alias acak baru dan menampilkan email + token.
 
-  python addy_helper.py check <email> <token>
+  python mail_helper.py check <email> <token>
       Menampilkan pesan-pesan yang masuk ke alias tersebut.
 
-  python addy_helper.py watch <email> <token> [--timeout 10]
+  python mail_helper.py watch <email> <token> [--timeout 10]
       Polling otomatis sampai pesan masuk.
 
 Contoh:
-  python addy_helper.py
-  python addy_helper.py run
-  python addy_helper.py check wc1senj5@anonaddy.me 43b9a262-3853-4f3d-a3dc-b45ae61d7289
+  python mail_helper.py
+  python mail_helper.py run
+  python mail_helper.py check 49ae604b@simplelogin.com 53705491 --provider simplelogin
 """
 import argparse
 import getpass
@@ -136,7 +133,7 @@ def _header_block():
     width = 56
     top = c("╔" + "═" * width + "╗", MAGENTA)
     bottom = c("╚" + "═" * width + "╝", MAGENTA)
-    line1 = ("  ADY.IO HELPER").ljust(width)
+    line1 = ("  MAIL HELPER").ljust(width)
     line2 = ("  Tempmail-MCP · Menu Interaktif").ljust(width)
     print(top)
     print(c("║", MAGENTA) + c(line1, BOLD + CYAN) + c("║", MAGENTA))
@@ -151,12 +148,8 @@ def _menu_box():
         ("1", "Check data", "Tampilkan data akun"),
         ("2", "Start", "Buat alias + tunggu pesan"),
         ("3", "Add data", "Tambah akun baru"),
-        ("4", "Set key", "Input key API addy.io"),
-        ("9", "Set SL key", "Input key API SimpleLogin"),
+        ("4", "Set key", "Input key API SimpleLogin"),
         ("5", "Inbox", "Diagnosis inbox asli"),
-        ("6", "Aliases", "Cek alias addy.io"),
-        ("7", "Failed", "Cek failed deliveries"),
-        ("8", "Recipients", "Cek tujuan forward"),
         ("0", "Exit", "Keluar dari script"),
     ]
     print(c("┌" + "─" * width + "┐", CYAN))
@@ -251,12 +244,13 @@ def _default_config():
     """Template config.json default (dibuat jika file belum ada)."""
     return {
         "_note": (
-            "Isi dengan data Anda. real_inbox = inbox asli tempat pesan addy.io "
-            "diteruskan (dan dibaca via IMAP). addy_api_key = key API addy.io. "
+            "Isi dengan data Anda. real_inbox = inbox asli tempat pesan "
+            "SimpleLogin diteruskan (dan dibaca via IMAP). "
+            "simplelogin_api_key = key API SimpleLogin. "
             "app_password = App Password 16 karakter TANPA spasi."
         ),
         "real_inbox": "",
-        "addy_api_key": "",
+        "simplelogin_api_key": "",
         "accounts": [],
     }
 
@@ -284,22 +278,6 @@ def _ensure_config():
         except OSError as e:
             print(c(f"[ERROR] Gagal membuat config.json: {e}", RED))
     return cfg
-
-
-def _get_addy_key():
-    """Key API addy.io: dari config.json, fallback ke .env ADDY_API_KEY."""
-    cfg = _load_config()
-    if cfg and cfg.get("addy_api_key"):
-        return cfg["addy_api_key"]
-    try:
-        with open(".env", "r") as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("ADDY_API_KEY=") and not line.startswith("#"):
-                    return line.split("=", 1)[1].strip()
-    except FileNotFoundError:
-        pass
-    return None
 
 
 def _get_real_inbox():
@@ -380,7 +358,7 @@ def _imap_list_recent(limit=15):
     """Diagnosis: tampilkan pesan-pesan terakhir di inbox asli via IMAP langsung.
 
     Membaca INBOX, SPAM, TRASH, dan juga [Gmail]/All Mail + semua label —
-    mail yang diteruskan addy.io sering dipindahkan ke label atau diarsip
+    mail yang diteruskan SimpleLogin sering dipindahkan ke label atau diarsip
     Gmail, jadi harus dicek di seluruh folder, bukan hanya INBOX.
     """
     email, pw = _imap_credentials()
@@ -463,135 +441,11 @@ def _imap_list_recent(limit=15):
             pass
 
 
-def _addy_api_get(path, params=None):
-    """Call addy.io API directly (bypass server) untuk diagnosis."""
-    key = _get_addy_key()
-    if not key:
-        _die("Key API addy.io belum terisi. Gunakan menu 4. Set key.")
-    url = f"https://app.addy.io/api/v1{path}"
-    if params:
-        url += "?" + urllib.parse.urlencode(params)
-    req = urllib.request.Request(
-        url,
-        headers={
-            "Authorization": f"Bearer {key}",
-            "X-Requested-With": "XMLHttpRequest",
-            "Accept": "application/json",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read().decode() or "null")
-    except urllib.error.HTTPError as e:
-        detail = e.read().decode()
-        raise ApiError(f"HTTP {e.code}: {detail}")
-    except urllib.error.URLError as e:
-        raise ApiError(f"Tidak bisa mencapai addy.io: {e}")
-
-
-def cmd_aliases(_args):
-    """Diagnosis: cek alias-alias di addy.io (ada/aktif) via API langsung."""
-    try:
-        data = _addy_api_get("/aliases")
-    except ApiError as e:
-        _die(str(e))
-    aliases = data.get("data", data) if isinstance(data, dict) else data
-    if not isinstance(aliases, list) or not aliases:
-        print(c("(tidak ada alias di akun addy.io ini)", DIM))
-        return
-    print(c(f"\n{len(aliases)} alias di addy.io:\n", BOLD + GREEN))
-    for a in aliases:
-        email = a.get("email", "?")
-        active = a.get("active", True)
-        status = c("AKTIF", GREEN) if active else c("NON-AKTIF", RED)
-        fwd = a.get("emails_forwarded", 0) or 0
-        blocked = a.get("emails_blocked", 0) or 0
-        last_forwarded = a.get("last_forwarded")
-        last_blocked = a.get("last_blocked")
-        print(f"  {c(email, CYAN)}   {status}")
-        if fwd:
-            print(f"      {c('forwarded :', BOLD)} {fwd}   {c('terakhir: ' + str(last_forwarded), DIM) if last_forwarded else ''}")
-        else:
-            print(f"      {c('forwarded :', BOLD)} {c('0', DIM)}")
-        if blocked:
-            print(f"      {c('blocked   :', BOLD)} {c(str(blocked), RED)}   {c('terakhir: ' + str(last_blocked), DIM) if last_blocked else ''}")
-    print()
-    print(c("Tip: alias harus AKTIF agar addy.io meneruskan pesan ke inbox asli.", DIM))
-    print(c("  forwarded=0: belum ada mail masuk ke alias ini.", DIM))
-    print(c("  Jika blocked > 0: mail masuk tapi ditolak addy.io — tidak sampai inbox asli.", DIM))
-
-
-def cmd_failed(_args):
-    """Diagnosis: cek failed deliveries addy.io (mail yang gagal di-forward)."""
-    try:
-        data = _addy_api_get("/failed-deliveries", {"filter[email_type]": "inbound"})
-    except ApiError as e:
-        msg = str(e)
-        if "404" in msg:
-            print(c("✗ Endpoint failed-deliveries tidak tersedia (404) untuk akun ini.", YELLOW))
-            print(c("  Gunakan menu 6. Aliases — menampilkan emails_forwarded/emails_blocked per alias.", DIM))
-            return
-        _die(msg)
-    fails = data.get("data", data) if isinstance(data, dict) else data
-    if not isinstance(fails, list) or not fails:
-        print(c("✓ Tidak ada failed delivery — semua mail yang masuk berhasil di-forward.", GREEN))
-        print(c("  Artinya: opencode.ai belum mengirim ke alias, atau mail masih dalam perjalanan.", DIM))
-        return
-    print(c(f"\n{len(fails)} failed delivery di addy.io:\n", BOLD + RED))
-    for f in fails:
-        alias = f.get("alias_email", "?")
-        sender = f.get("sender", "?")
-        status = f.get("status", "?")
-        code = f.get("code", "")
-        tried = f.get("attempted_at", "")
-        print(f"  {c('Alias  :', BOLD)} {c(alias, CYAN)}")
-        print(f"  {c('Dari   :', BOLD)} {sender}")
-        print(f"  {c('Status :', BOLD)} {c(status, RED)}  {c(code, DIM)}")
-        print(f"  {c('Waktu  :', BOLD)} {c(str(tried), DIM)}")
-        print()
-    print(c("Mail yang gagal di-forward TIDAK akan sampai ke inbox asli.", YELLOW))
-
-
-def cmd_recipients(_args):
-    """Diagnosis: cek recipient (tujuan forward) addy.io via API langsung."""
-    try:
-        data = _addy_api_get("/recipients")
-    except ApiError as e:
-        msg = str(e)
-        if "404" in msg:
-            print(c("✗ Endpoint recipients tidak tersedia (404).", YELLOW))
-            return
-        _die(msg)
-    recips = data.get("data", data) if isinstance(data, dict) else data
-    if not isinstance(recips, list) or not recips:
-        print(c("(tidak ada recipient di akun addy.io ini)", DIM))
-        return
-    print(c(f"\n{len(recips)} recipient (tujuan forward) addy.io:\n", BOLD + GREEN))
-    for r in recips:
-        email = r.get("email", "?")
-        verified = r.get("email_verified_at")
-        active = r.get("active", True)
-        status = c("AKTIF", GREEN) if active else c("NON-AKTIF", RED)
-        verified_txt = c("terverifikasi", GREEN) if verified else c("TIDAK terverifikasi", RED)
-        print(f"  {c(email, CYAN)}   {status}   {verified_txt}")
-    print()
-    current = _get_real_inbox()
-    if current:
-        print(c(f"Inbox yang Anda cek (config.json): {current}", YELLOW))
-        matches = [r for r in recips if r.get("email", "").lower() == current.lower()]
-        if matches:
-            print(c("✓ Recipient addy.io sama dengan inbox yang dicek — seharusnya mail masuk.", GREEN))
-        else:
-            print(c("✗ Recipient addy.io BERBEDA dengan inbox yang dicek!", RED))
-            print(c("  Mail addy.io diteruskan ke recipient di atas, bukan ke inbox yang Anda cek.", YELLOW))
-            print(c("  Sinkronkan: ubah recipient addy.io atau set real_inbox ke recipient tersebut.", DIM))
-
-
-def _create_alias(provider="addy.io"):
+def _create_alias(provider="simplelogin"):
     return _request("POST", f"{BASE}/api/email?name={provider}", data={})
 
 
-def _fetch_messages(email, token, provider="addy.io"):
+def _fetch_messages(email, token, provider="simplelogin"):
     q = urllib.parse.urlencode({"token": token, "name": provider})
     return _request("GET", f"{BASE}/api/email/{urllib.parse.quote(email)}/messages?{q}")
 
@@ -670,7 +524,7 @@ def _print_messages(messages):
 
 def cmd_gen(args):
     try:
-        provider = getattr(args, "provider", "addy.io")
+        provider = getattr(args, "provider", "simplelogin")
         print(c(f"⏳  Membuat alias acak baru ({provider})...", CYAN))
         result = _with_spinner("Membuat alias acak baru", lambda: _create_alias(provider))
         email = result["email"]
@@ -695,8 +549,8 @@ def cmd_gen(args):
             print(c(f"Akun terkonfigurasi ({len(accounts)}): {emails}", DIM))
             print()
         print(c("Gunakan EMAIL ini untuk mendaftar. Cek pesan dengan:", DIM))
-        print(f"  python addy_helper.py check {email} {token} --provider {provider}")
-        print(f"  python addy_helper.py watch {email} {token} --provider {provider}")
+        print(f"  python mail_helper.py check {email} {token} --provider {provider}")
+        print(f"  python mail_helper.py watch {email} {token} --provider {provider}")
     except ApiError as e:
         clear_line()
         _die(str(e))
@@ -704,7 +558,7 @@ def cmd_gen(args):
 
 def cmd_run(args):
     try:
-        provider = getattr(args, "provider", "addy.io")
+        provider = getattr(args, "provider", "simplelogin")
         banner("GENERATE ALIAS")
         print(c(f"⏳  Membuat alias acak baru ({provider})...", CYAN))
         result = _with_spinner("Membuat alias acak baru", lambda: _create_alias(provider))
@@ -754,7 +608,7 @@ def cmd_run(args):
             print(c("\nBerhenti.", YELLOW))
         clear_line()
         print(c(f"✗  [Timeout] Tidak ada pesan dalam {args.timeout}s.", YELLOW))
-        print(c(f"Coba cek manual: python addy_helper.py check {email} {token} --provider {provider}", DIM))
+        print(c(f"Coba cek manual: python mail_helper.py check {email} {token} --provider {provider}", DIM))
     except ApiError as e:
         clear_line()
         _die(str(e))
@@ -762,7 +616,7 @@ def cmd_run(args):
 
 def cmd_check(args):
     try:
-        provider = getattr(args, "provider", "addy.io")
+        provider = getattr(args, "provider", "simplelogin")
         messages = _fetch_messages(args.email, args.token, provider)
         _print_messages(messages)
     except ApiError as e:
@@ -776,7 +630,7 @@ def cmd_inbox(_args):
 
 def cmd_watch(args):
     try:
-        provider = getattr(args, "provider", "addy.io")
+        provider = getattr(args, "provider", "simplelogin")
         print(c(f"⏳  Menunggu pesan untuk {args.email} (max {args.timeout}s)...", CYAN))
         start = time.time()
         i = 0
@@ -800,7 +654,7 @@ def cmd_watch(args):
             print(c("\nBerhenti.", YELLOW))
         clear_line()
         print(c(f"✗  [Timeout] Tidak ada pesan dalam {args.timeout}s.", YELLOW))
-        print(c(f"Coba cek manual: python addy_helper.py check {args.email} {args.token} --provider {provider}", DIM))
+        print(c(f"Coba cek manual: python mail_helper.py check {args.email} {args.token} --provider {provider}", DIM))
     except ApiError as e:
         clear_line()
         _die(str(e))
@@ -866,42 +720,7 @@ def cmd_add(_args):
         print(c(f"  EMAIL ASLI: {cfg['real_inbox']}", YELLOW))
 
 
-def cmd_key(_args):
-    """Input key API addy.io dan simpan ke config.json (tidak hardcode)."""
-    banner("SET KEY API ADY.IO")
-    print(c("Key ini disimpan di config.json — tidak hardcode di script.", DIM))
-    print()
-
-    existing = _get_addy_key()
-    if existing:
-        shown = existing if len(existing) <= 8 else existing[:4] + "..." + existing[-4:]
-        print(c(f"Key saat ini : {shown}", DIM))
-        overwrite = input(c("Ganti key? [Y/n]: ", BOLD)).strip().lower()
-        if overwrite not in ("", "y", "yes"):
-            print(c("Key tidak diganti.", YELLOW))
-            return
-
-    key = getpass.getpass(c("Key API addy.io     : ", BOLD)).strip()
-    if not key:
-        print(c("[ERROR] Key tidak boleh kosong.", RED))
-        return
-
-    cfg = _ensure_config()
-    cfg["addy_api_key"] = key
-    try:
-        with open("config.json", "w") as f:
-            json.dump(cfg, f, indent=2, ensure_ascii=False)
-        print(c("✓ Key API addy.io disimpan ke config.json.", GREEN))
-    except OSError as e:
-        print(c(f"[ERROR] Gagal menulis config.json: {e}", RED))
-        return
-
-    print()
-    print(c("Untuk gunakan key ini, tambahkan ke .env juga (opsional):", DIM))
-    print(c("  ADDY_API_KEY=" + key, YELLOW))
-
-
-def _get_sl_key():
+def _get_api_key():
     """Key API SimpleLogin: dari config.json, fallback ke .env SIMPLELOGIN_API_KEY."""
     cfg = _load_config()
     if cfg and cfg.get("simplelogin_api_key"):
@@ -909,13 +728,13 @@ def _get_sl_key():
     return _read_env_value("SIMPLELOGIN_API_KEY")
 
 
-def cmd_sl_key(_args):
+def cmd_set_key(_args):
     """Input key API SimpleLogin dan simpan ke config.json (tidak hardcode)."""
     banner("SET KEY API SIMPLELOGIN")
     print(c("Key ini disimpan di config.json — tidak hardcode di script.", DIM))
     print()
 
-    existing = _get_sl_key()
+    existing = _get_api_key()
     if existing:
         shown = existing if len(existing) <= 8 else existing[:4] + "..." + existing[-4:]
         print(c(f"Key saat ini : {shown}", DIM))
@@ -953,12 +772,12 @@ def _show_data():
         return
     real = cfg.get("real_inbox")
     print(f"  {c('EMAIL ASLI', BOLD)} : {c(real or '(belum diatur)', YELLOW)}")
-    key = cfg.get("addy_api_key")
+    key = _get_api_key()
     if key:
         shown = key if len(key) <= 8 else key[:4] + "..." + key[-4:]
-        print(f"  {c('KEY ADY.IO', BOLD)} : {c(shown, CYAN)}")
+        print(f"  {c('KEY SIMPLELOGIN', BOLD)} : {c(shown, CYAN)}")
     else:
-        print(f"  {c('KEY ADY.IO', BOLD)} : {c('(belum diatur)', DIM)}")
+        print(f"  {c('KEY SIMPLELOGIN', BOLD)} : {c('(belum diatur)', DIM)}")
     accounts = cfg.get("accounts", [])
     if not accounts:
         print(c("  Belum ada akun di accounts[]. Pilih '3. Add data'.", DIM))
@@ -972,7 +791,7 @@ def _show_data():
 
 
 def _preflight_check():
-    """Periksa saat script dijalankan: minimal 1 akun Gmail + key addy.io.
+    """Periksa saat script dijalankan: minimal 1 akun Gmail + key SimpleLogin.
 
     Jika ada yang kosong, tampilkan peringatan. Script TIDAK keluar —
     menu tetap muncul di posisi semula agar pengguna bisa mengisi data.
@@ -984,9 +803,9 @@ def _preflight_check():
     if not accounts:
         missing.append("1 akun Gmail (menu 3. Add data)")
 
-    key = _get_addy_key()
+    key = _get_api_key()
     if not key:
-        missing.append("key API addy.io (menu 4. Set key)")
+        missing.append("key API SimpleLogin (menu 4. Set key)")
 
     if missing:
         print()
@@ -1001,11 +820,11 @@ def _preflight_check():
         print(c("└" + "─" * 56 + "┘", YELLOW))
         print()
     # informasi tambahan (tidak blocking): status key SimpleLogin
-    sl_key = _get_sl_key()
+    sl_key = _get_api_key()
     if sl_key:
         print(c(f"  ✓ Key SimpleLogin: {sl_key[:4]}...{sl_key[-4:]}", DIM))
     else:
-        print(c("  · Key SimpleLogin belum diatur (menu 9. Set SL key, opsional)", DIM))
+        print(c("  · Key SimpleLogin belum diatur (menu 4. Set key, opsional)", DIM))
 
 
 def menu_loop():
@@ -1022,11 +841,6 @@ def menu_loop():
         if choice == "1":
             _show_data()
         elif choice == "2":
-            provider = input(c("Provider [a=addy.io / s=simplelogin, default a]: ", BOLD)).strip().lower()
-            if provider in ("s", "simplelogin"):
-                provider = "simplelogin"
-            else:
-                provider = "addy.io"
             timeout_str = input(c("Timeout (detik, default 10): ", BOLD)).strip()
             try:
                 timeout = int(timeout_str) if timeout_str else 10
@@ -1035,63 +849,49 @@ def menu_loop():
             if timeout <= 0:
                 print(c("[ERROR] Timeout harus > 0.", RED))
                 continue
-            cmd_run(argparse.Namespace(timeout=timeout, interval=3, provider=provider))
+            cmd_run(argparse.Namespace(timeout=timeout, interval=3, provider="simplelogin"))
         elif choice == "3":
             cmd_add(None)
         elif choice == "4":
-            cmd_key(None)
-        elif choice == "9":
-            cmd_sl_key(None)
+            cmd_set_key(None)
         elif choice == "5":
             cmd_inbox(None)
-        elif choice == "6":
-            cmd_aliases(None)
-        elif choice == "7":
-            cmd_failed(None)
-        elif choice == "8":
-            cmd_recipients(None)
         elif choice == "0":
             print(c("✓ Terima kasih, exit.", GREEN))
             break
         else:
-            print(c("[ERROR] Pilihan tidak valid (0/1/2/3/4/5/6/7/8).", RED))
+            print(c("[ERROR] Pilihan tidak valid (0/1/2/3/4/5).", RED))
 
 
 def main():
     p = argparse.ArgumentParser(
-        description=c("Helper addy.io untuk Tempmail-MCP — menu interaktif", BOLD + CYAN)
+        description=c("Helper SimpleLogin untuk Tempmail-MCP — menu interaktif", BOLD + CYAN)
     )
     sub = p.add_subparsers(dest="command")
 
     pg = sub.add_parser("gen", help="Membuat alias acak baru")
-    pg.add_argument("--provider", default="addy.io", choices=["addy.io", "simplelogin"],
-                    help="Provider alias (default: addy.io)")
+    pg.add_argument("--provider", default="simplelogin", choices=["simplelogin"],
+                    help="Provider alias (default: simplelogin)")
     pg.set_defaults(func=cmd_gen)
 
     sub.add_parser("add", help="Tambah akun Gmail baru ke config.json (input email + app password)").set_defaults(func=cmd_add)
 
-    sub.add_parser("key", help="Input key API addy.io ke config.json").set_defaults(func=cmd_key)
+    sub.add_parser("key", help="Input key API SimpleLogin ke config.json").set_defaults(func=cmd_set_key)
 
     sub.add_parser("inbox", help="Diagnosis: lihat pesan terakhir di inbox asli").set_defaults(func=cmd_inbox)
-
-    sub.add_parser("aliases", help="Diagnosis: cek alias addy.io (ada/aktif)").set_defaults(func=cmd_aliases)
-
-    sub.add_parser("failed", help="Diagnosis: cek failed deliveries addy.io").set_defaults(func=cmd_failed)
-
-    sub.add_parser("recipients", help="Diagnosis: cek tujuan forward addy.io").set_defaults(func=cmd_recipients)
 
     pr = sub.add_parser("run", help="Satu kali jalan: buat alias, tampilkan, lalu tunggu pesan")
     pr.add_argument("--timeout", type=int, default=10, help="Timeout detik (default 10)")
     pr.add_argument("--interval", type=int, default=3, help="Interval polling detik (default 3)")
-    pr.add_argument("--provider", default="addy.io", choices=["addy.io", "simplelogin"],
-                    help="Provider alias (default: addy.io)")
+    pr.add_argument("--provider", default="simplelogin", choices=["simplelogin"],
+                    help="Provider alias (default: simplelogin)")
     pr.set_defaults(func=cmd_run)
 
     pc = sub.add_parser("check", help="Cek pesan masuk")
     pc.add_argument("email")
     pc.add_argument("token")
-    pc.add_argument("--provider", default="addy.io", choices=["addy.io", "simplelogin"],
-                    help="Provider alias (default: addy.io)")
+    pc.add_argument("--provider", default="simplelogin", choices=["simplelogin"],
+                    help="Provider alias (default: simplelogin)")
     pc.set_defaults(func=cmd_check)
 
     pw = sub.add_parser("watch", help="Polling otomatis sampai pesan masuk")
@@ -1099,8 +899,8 @@ def main():
     pw.add_argument("token")
     pw.add_argument("--timeout", type=int, default=10, help="Timeout detik (default 10)")
     pw.add_argument("--interval", type=int, default=3, help="Interval polling detik (default 3)")
-    pw.add_argument("--provider", default="addy.io", choices=["addy.io", "simplelogin"],
-                    help="Provider alias (default: addy.io)")
+    pw.add_argument("--provider", default="simplelogin", choices=["simplelogin"],
+                    help="Provider alias (default: simplelogin)")
     pw.set_defaults(func=cmd_watch)
 
     args = p.parse_args()

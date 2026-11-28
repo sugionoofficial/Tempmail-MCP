@@ -2,7 +2,7 @@
 SimpleLogin provider — creates random aliases that forward to your real
 inbox, and reads the forwarded messages from that real inbox.
 
-How it works (hybrid, same as addy.io):
+How it works (hybrid):
   * create_email()  → asks SimpleLogin for a fresh random alias (e.g.
     ab12cd@simplelogin.co) and returns it. SimpleLogin auto-forwards
     anything sent to that alias to your real inbox.

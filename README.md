@@ -11,7 +11,7 @@ Multiple disposable-inbox providers are aggregated behind a single API; broken p
 
 ## Features
 
-- **Multi-provider** — addy.io, SimpleLogin, mail.tm, tempmail.io, Gmail (IMAP), mailticking, tempmailo, tempail
+- **Multi-provider** — SimpleLogin, mail.tm, tempmail.io, Gmail (IMAP), mailticking, tempmailo, tempail
 - **Auto-fallback** — picks the first healthy provider in priority order
 - **Circuit breaker** — providers that fail 3× in a row are auto-disabled; re-enable via API
 - **Startup health-check** — broken providers are disabled before the first request
@@ -52,8 +52,6 @@ docker compose up -d
 | `GMAIL_ACCOUNTS` | — | JSON array of `{email, app_password}` for Gmail **pool** mode (real accounts, round-robin) |
 | `GMAIL_EMAILS` | — | Comma-separated Gmail addresses (pool mode, alternative to `GMAIL_ACCOUNTS`) |
 | `GMAIL_APP_PASSWORDS` | — | Comma-separated app passwords aligned to `GMAIL_EMAILS` (pool mode) |
-| `ADDY_API_KEY` | — | addy.io personal access token (`https://app.addy.io/settings/api`) — random aliases forwarding to your real inbox |
-| `ADDY_DOMAIN` | — | Optional addy.io domain to create aliases on (e.g. `anonaddy.me`); auto-picked if unset |
 | `SIMPLELOGIN_API_KEY` | — | SimpleLogin API key (`https://app.simplelogin.io/settings/api`) — random aliases forwarding to your real inbox |
 
 ---
@@ -206,13 +204,12 @@ Priority order (first healthy provider wins):
 |---|---|---|---|---|
 | 1 | `gmail` | IMAP | No | **Alias mode**: needs `GMAIL_EMAIL` + `GMAIL_APP_PASSWORD` — generates `user+<tag>@gmail.com` |
 | 1 | `gmail` | IMAP | No | **Pool mode**: needs `GMAIL_ACCOUNTS` (or `GMAIL_EMAILS` + `GMAIL_APP_PASSWORDS`) — hands out real, independent Gmail accounts round-robin |
-| 2 | `addy.io` | REST API | No | Needs `ADDY_API_KEY` + `GMAIL_EMAIL` + `GMAIL_APP_PASSWORD` — creates **random unique aliases** that forward to your real inbox (alias domain is NOT gmail.com) |
-| 3 | `simplelogin` | REST API | No | Needs `SIMPLELOGIN_API_KEY` + `GMAIL_EMAIL` + `GMAIL_APP_PASSWORD` — creates **random unique aliases** (`@simplelogin.co` / `@simplelogin.com` / `@sl.lan`) that forward to your real inbox; better Gmail acceptance than `@anonaddy.me` |
-| 4 | `mail.tm` | REST API | No | Most reliable fallback |
-| 4 | `tempmail.io` | REST API | No | Reliable |
-| 5 | `mailticking` | Scraping | Yes | CF-protected |
-| 6 | `tempmailo` | Scraping | Yes | CF-protected |
-| 7 | `tempail` | Scraping | Yes | May be blocked by reCAPTCHA |
+| 2 | `simplelogin` | REST API | No | Needs `SIMPLELOGIN_API_KEY` + `GMAIL_EMAIL` + `GMAIL_APP_PASSWORD` — creates **random unique aliases** (`@simplelogin.co` / `@simplelogin.com` / `@sl.lan`) that forward to your real inbox |
+| 3 | `mail.tm` | REST API | No | Most reliable fallback |
+| 3 | `tempmail.io` | REST API | No | Reliable |
+| 4 | `mailticking` | Scraping | Yes | CF-protected |
+| 5 | `tempmailo` | Scraping | Yes | CF-protected |
+| 6 | `tempail` | Scraping | Yes | May be blocked by reCAPTCHA |
 
 At startup, each provider is probed with a real `create_email` call. Any provider that fails is auto-disabled before serving requests.
 

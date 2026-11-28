@@ -15,7 +15,6 @@ import os
 from typing import Optional
 
 from .providers import (
-    AddyIOProvider,
     EmailProvider,
     GmailPoolProvider,
     GmailProvider,
@@ -42,7 +41,6 @@ MAX_CONSECUTIVE_FAILURES = 3
 
 PRIORITY = [
     "gmail",        # IMAP +tag aliases (only if creds set)
-    "addy.io",      # random aliases forwarding to real inbox (if ADDY_API_KEY set)
     "simplelogin",  # random aliases forwarding to real inbox (if SIMPLELOGIN_API_KEY set)
     "mail.tm",      # clean REST API, real temp domains
     "tempmail.io",  # direct API
@@ -189,15 +187,6 @@ async def startup() -> None:
         log.info("Gmail provider registered")
     else:
         log.info("Gmail provider skipped (GMAIL_ACCOUNTS / GMAIL_EMAILS / GMAIL_EMAIL not set)")
-
-    if os.getenv("ADDY_API_KEY") and os.getenv("GMAIL_EMAIL") and os.getenv("GMAIL_APP_PASSWORD"):
-        try:
-            register(AddyIOProvider())
-            log.info("addy.io provider registered")
-        except Exception as exc:
-            log.warning("addy.io provider skipped: %s", exc)
-    else:
-        log.info("addy.io provider skipped (ADDY_API_KEY / GMAIL_EMAIL / GMAIL_APP_PASSWORD not set)")
 
     if os.getenv("SIMPLELOGIN_API_KEY") and os.getenv("GMAIL_EMAIL") and os.getenv("GMAIL_APP_PASSWORD"):
         try:
