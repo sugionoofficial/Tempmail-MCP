@@ -150,6 +150,7 @@ def _menu_box():
         ("2", "Start", "Buat alias + tunggu pesan"),
         ("3", "Add data", "Tambah akun baru"),
         ("4", "Set key", "Input key API addy.io"),
+        ("9", "Set SL key", "Input key API SimpleLogin"),
         ("5", "Inbox", "Diagnosis inbox asli"),
         ("6", "Aliases", "Cek alias addy.io"),
         ("7", "Failed", "Cek failed deliveries"),
@@ -584,12 +585,12 @@ def cmd_recipients(_args):
             print(c("  Sinkronkan: ubah recipient addy.io atau set real_inbox ke recipient tersebut.", DIM))
 
 
-def _create_alias():
-    return _request("POST", f"{BASE}/api/email?name=addy.io", data={})
+def _create_alias(provider="addy.io"):
+    return _request("POST", f"{BASE}/api/email?name={provider}", data={})
 
 
-def _fetch_messages(email, token):
-    q = urllib.parse.urlencode({"token": token, "name": "addy.io"})
+def _fetch_messages(email, token, provider="addy.io"):
+    q = urllib.parse.urlencode({"token": token, "name": provider})
     return _request("GET", f"{BASE}/api/email/{urllib.parse.quote(email)}/messages?{q}")
 
 
@@ -610,10 +611,11 @@ def _print_messages(messages):
         print()
 
 
-def cmd_gen(_args):
+def cmd_gen(args):
     try:
-        print(c("⏳  Membuat alias acak baru...", CYAN))
-        result = _with_spinner("Membuat alias acak baru", _create_alias)
+        provider = getattr(args, "provider", "addy.io")
+        print(c(f"⏳  Membuat alias acak baru ({provider})...", CYAN))
+        result = _with_spinner("Membuat alias acak baru", lambda: _create_alias(provider))
         email = result["email"]
         token = result["token"]
         real = _get_real_inbox()
@@ -636,8 +638,8 @@ def cmd_gen(_args):
             print(c(f"Akun terkonfigurasi ({len(accounts)}): {emails}", DIM))
             print()
         print(c("Gunakan EMAIL ini untuk mendaftar. Cek pesan dengan:", DIM))
-        print(f"  python addy_helper.py check {email} {token}")
-        print(f"  python addy_helper.py watch {email} {token}")
+        print(f"  python addy_helper.py check {email} {token} --provider {provider}")
+        print(f"  python addy_helper.py watch {email} {token} --provider {provider}")
     except ApiError as e:
         clear_line()
         _die(str(e))
@@ -645,9 +647,10 @@ def cmd_gen(_args):
 
 def cmd_run(args):
     try:
+        provider = getattr(args, "provider", "addy.io")
         banner("GENERATE ALIAS")
-        print(c("⏳  Membuat alias acak baru...", CYAN))
-        result = _with_spinner("Membuat alias acak baru", _create_alias)
+        print(c(f"⏳  Membuat alias acak baru ({provider})...", CYAN))
+        result = _with_spinner("Membuat alias acak baru", lambda: _create_alias(provider))
         email = result["email"]
         token = result["token"]
         real = _get_real_inbox()
@@ -680,7 +683,7 @@ def cmd_run(args):
                 clear_line()
                 sys.stdout.write(f"{c(spinner_frame(i), CYAN)} Menunggu pesan... {elapsed}s / {args.timeout}s")
                 sys.stdout.flush()
-                messages = _fetch_messages(email, token)
+                messages = _fetch_messages(email, token, provider)
                 if messages:
                     clear_line()
                     print()
@@ -694,7 +697,7 @@ def cmd_run(args):
             print(c("\nBerhenti.", YELLOW))
         clear_line()
         print(c(f"✗  [Timeout] Tidak ada pesan dalam {args.timeout}s.", YELLOW))
-        print(c(f"Coba cek manual: python addy_helper.py check {email} {token}", DIM))
+        print(c(f"Coba cek manual: python addy_helper.py check {email} {token} --provider {provider}", DIM))
     except ApiError as e:
         clear_line()
         _die(str(e))
@@ -702,7 +705,8 @@ def cmd_run(args):
 
 def cmd_check(args):
     try:
-        messages = _fetch_messages(args.email, args.token)
+        provider = getattr(args, "provider", "addy.io")
+        messages = _fetch_messages(args.email, args.token, provider)
         _print_messages(messages)
     except ApiError as e:
         _die(str(e))
@@ -715,6 +719,7 @@ def cmd_inbox(_args):
 
 def cmd_watch(args):
     try:
+        provider = getattr(args, "provider", "addy.io")
         print(c(f"⏳  Menunggu pesan untuk {args.email} (max {args.timeout}s)...", CYAN))
         start = time.time()
         i = 0
@@ -724,7 +729,7 @@ def cmd_watch(args):
                 clear_line()
                 sys.stdout.write(f"{c(spinner_frame(i), CYAN)} Menunggu pesan... {elapsed}s / {args.timeout}s")
                 sys.stdout.flush()
-                messages = _fetch_messages(args.email, args.token)
+                messages = _fetch_messages(args.email, args.token, provider)
                 if messages:
                     clear_line()
                     print()
@@ -738,6 +743,7 @@ def cmd_watch(args):
             print(c("\nBerhenti.", YELLOW))
         clear_line()
         print(c(f"✗  [Timeout] Tidak ada pesan dalam {args.timeout}s.", YELLOW))
+        print(c(f"Coba cek manual: python addy_helper.py check {args.email} {args.token} --provider {provider}", DIM))
     except ApiError as e:
         clear_line()
         _die(str(e))
@@ -838,6 +844,49 @@ def cmd_key(_args):
     print(c("  ADDY_API_KEY=" + key, YELLOW))
 
 
+def _get_sl_key():
+    """Key API SimpleLogin: dari config.json, fallback ke .env SIMPLELOGIN_API_KEY."""
+    cfg = _load_config()
+    if cfg and cfg.get("simplelogin_api_key"):
+        return cfg["simplelogin_api_key"]
+    return _read_env_value("SIMPLELOGIN_API_KEY")
+
+
+def cmd_sl_key(_args):
+    """Input key API SimpleLogin dan simpan ke config.json (tidak hardcode)."""
+    banner("SET KEY API SIMPLELOGIN")
+    print(c("Key ini disimpan di config.json — tidak hardcode di script.", DIM))
+    print()
+
+    existing = _get_sl_key()
+    if existing:
+        shown = existing if len(existing) <= 8 else existing[:4] + "..." + existing[-4:]
+        print(c(f"Key saat ini : {shown}", DIM))
+        overwrite = input(c("Ganti key? [Y/n]: ", BOLD)).strip().lower()
+        if overwrite not in ("", "y", "yes"):
+            print(c("Key tidak diganti.", YELLOW))
+            return
+
+    key = getpass.getpass(c("Key API SimpleLogin : ", BOLD)).strip()
+    if not key:
+        print(c("[ERROR] Key tidak boleh kosong.", RED))
+        return
+
+    cfg = _ensure_config()
+    cfg["simplelogin_api_key"] = key
+    try:
+        with open("config.json", "w") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+        print(c("✓ Key API SimpleLogin disimpan ke config.json.", GREEN))
+    except OSError as e:
+        print(c(f"[ERROR] Gagal menulis config.json: {e}", RED))
+        return
+
+    print()
+    print(c("Untuk gunakan key ini, tambahkan ke .env (wajib untuk server):", DIM))
+    print(c("  SIMPLELOGIN_API_KEY=" + key, YELLOW))
+
+
 def _show_data():
     """Tampilkan data akun dari config.json."""
     cfg = _load_config()
@@ -894,6 +943,12 @@ def _preflight_check():
         print(c("│", YELLOW) + c("  jalan dan tidak akan keluar.", YELLOW) + c("│", YELLOW))
         print(c("└" + "─" * 56 + "┘", YELLOW))
         print()
+    # informasi tambahan (tidak blocking): status key SimpleLogin
+    sl_key = _get_sl_key()
+    if sl_key:
+        print(c(f"  ✓ Key SimpleLogin: {sl_key[:4]}...{sl_key[-4:]}", DIM))
+    else:
+        print(c("  · Key SimpleLogin belum diatur (menu 9. Set SL key, opsional)", DIM))
 
 
 def menu_loop():
@@ -910,6 +965,11 @@ def menu_loop():
         if choice == "1":
             _show_data()
         elif choice == "2":
+            provider = input(c("Provider [a=addy.io / s=simplelogin, default a]: ", BOLD)).strip().lower()
+            if provider in ("s", "simplelogin"):
+                provider = "simplelogin"
+            else:
+                provider = "addy.io"
             timeout_str = input(c("Timeout (detik, default 10): ", BOLD)).strip()
             try:
                 timeout = int(timeout_str) if timeout_str else 10
@@ -918,11 +978,13 @@ def menu_loop():
             if timeout <= 0:
                 print(c("[ERROR] Timeout harus > 0.", RED))
                 continue
-            cmd_run(argparse.Namespace(timeout=timeout, interval=3))
+            cmd_run(argparse.Namespace(timeout=timeout, interval=3, provider=provider))
         elif choice == "3":
             cmd_add(None)
         elif choice == "4":
             cmd_key(None)
+        elif choice == "9":
+            cmd_sl_key(None)
         elif choice == "5":
             cmd_inbox(None)
         elif choice == "6":
@@ -944,7 +1006,10 @@ def main():
     )
     sub = p.add_subparsers(dest="command")
 
-    sub.add_parser("gen", help="Membuat alias acak baru").set_defaults(func=cmd_gen)
+    pg = sub.add_parser("gen", help="Membuat alias acak baru")
+    pg.add_argument("--provider", default="addy.io", choices=["addy.io", "simplelogin"],
+                    help="Provider alias (default: addy.io)")
+    pg.set_defaults(func=cmd_gen)
 
     sub.add_parser("add", help="Tambah akun Gmail baru ke config.json (input email + app password)").set_defaults(func=cmd_add)
 
@@ -961,11 +1026,15 @@ def main():
     pr = sub.add_parser("run", help="Satu kali jalan: buat alias, tampilkan, lalu tunggu pesan")
     pr.add_argument("--timeout", type=int, default=10, help="Timeout detik (default 10)")
     pr.add_argument("--interval", type=int, default=3, help="Interval polling detik (default 3)")
+    pr.add_argument("--provider", default="addy.io", choices=["addy.io", "simplelogin"],
+                    help="Provider alias (default: addy.io)")
     pr.set_defaults(func=cmd_run)
 
     pc = sub.add_parser("check", help="Cek pesan masuk")
     pc.add_argument("email")
     pc.add_argument("token")
+    pc.add_argument("--provider", default="addy.io", choices=["addy.io", "simplelogin"],
+                    help="Provider alias (default: addy.io)")
     pc.set_defaults(func=cmd_check)
 
     pw = sub.add_parser("watch", help="Polling otomatis sampai pesan masuk")
@@ -973,6 +1042,8 @@ def main():
     pw.add_argument("token")
     pw.add_argument("--timeout", type=int, default=10, help="Timeout detik (default 10)")
     pw.add_argument("--interval", type=int, default=3, help="Interval polling detik (default 3)")
+    pw.add_argument("--provider", default="addy.io", choices=["addy.io", "simplelogin"],
+                    help="Provider alias (default: addy.io)")
     pw.set_defaults(func=cmd_watch)
 
     args = p.parse_args()
