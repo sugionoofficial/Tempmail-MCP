@@ -35,6 +35,7 @@ Contoh:
   python mail_helper.py check 49ae604b@simplelogin.com 53705491 --provider simplelogin
 """
 import argparse
+import email as email_lib
 import getpass
 import html
 import imaplib
@@ -47,6 +48,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from email.header import decode_header
 
 BASE = "http://127.0.0.1:8000"
 
@@ -354,6 +356,91 @@ def _imap_msg_brief(mail, uid):
     return (from_v, sub_v, date_v)
 
 
+def _decode_hdr(value):
+    """Decode header email (bisa base64/encoded-word) ke teks."""
+    if not value:
+        return ""
+    try:
+        parts = decode_header(value)
+        out = ""
+        for text, enc in parts:
+            if isinstance(text, bytes):
+                out += text.decode(enc or "utf-8", errors="replace")
+            else:
+                out += text
+        return out
+    except Exception:
+        return value
+
+
+def _parse_full_msg(raw_bytes):
+    """Parse pesan lengkap (RFC822) -> dict(from, subject, date, body_text, body_html)."""
+    msg = email_lib.message_from_bytes(raw_bytes)
+    body_text = ""
+    body_html = ""
+    if msg.is_multipart():
+        for part in msg.walk():
+            ct = part.get_content_type()
+            disposition = str(part.get("Content-Disposition", ""))
+            if "attachment" in disposition:
+                continue
+            if ct == "text/plain" and not body_text:
+                body_text = (part.get_payload(decode=True) or b"").decode(
+                    part.get_content_charset() or "utf-8", errors="replace"
+                )
+            elif ct == "text/html" and not body_html:
+                body_html = (part.get_payload(decode=True) or b"").decode(
+                    part.get_content_charset() or "utf-8", errors="replace"
+                )
+    else:
+        payload = (msg.get_payload(decode=True) or b"").decode(
+            msg.get_content_charset() or "utf-8", errors="replace"
+        )
+        if msg.get_content_type() == "text/html":
+            body_html = payload
+        else:
+            body_text = payload
+    return {
+        "from_addr": _decode_hdr(msg.get("From", "")),
+        "subject": _decode_hdr(msg.get("Subject", "")),
+        "date": msg.get("Date", ""),
+        "body_text": body_text,
+        "body_html": body_html,
+    }
+
+
+def _show_imap_message(mail, item):
+    """Tampilkan isi lengkap satu pesan (dari IMAP) dengan kode yang diekstrak."""
+    try:
+        mail.select(item["folder"])
+        _, msg_data = mail.fetch(item["uid"], "(RFC822)")
+    except imaplib.IMAP4.error as e:
+        print(c(f"[ERROR] Gagal memuat pesan: {e}", RED))
+        return
+    if not msg_data or not msg_data[0]:
+        print(c("(pesan kosong / tidak bisa dibaca)", DIM))
+        return
+    raw = msg_data[0][1]
+    parsed = _parse_full_msg(raw)
+
+    print(c("┌─ " + "─" * 38, DIM))
+    print(f"  {c('Dari  :', BOLD)} {c(parsed['from_addr'], CYAN)}")
+    print(f"  {c('Subjek:', BOLD)} {c(parsed['subject'] or '(tanpa subjek)', YELLOW)}")
+    if parsed["date"]:
+        print(f"  {c('Tanggal:', BOLD)} {c(parsed['date'], DIM)}")
+
+    raw_body = parsed["body_text"] or parsed["body_html"]
+    code = _extract_code(raw_body)
+    if code:
+        print(f"  {c('KODE :', BOLD + GREEN)} {c(code, BOLD + GREEN)}")
+        print(c("       (copy: tekan Ctrl+C di terminal, atau pilih kode di atas)", DIM))
+
+    body_plain = _strip_html(raw_body)
+    body_show = body_plain[:1200] + ("..." if len(body_plain) > 1200 else "")
+    print(f"  {c('Isi   :', BOLD)} {body_show}")
+    print(c("└" + "─" * 40, DIM))
+
+
 def _imap_list_recent(limit=15):
     """Diagnosis: tampilkan pesan-pesan terakhir di inbox asli via IMAP langsung.
 
@@ -397,14 +484,14 @@ def _imap_list_recent(limit=15):
         except imaplib.IMAP4.error:
             pass
 
-        # 2. cari di folder utama + All Mail
+        # 2. kumpulkan pesan dari folder utama + All Mail
         folders = [
             ("INBOX", "Inbox"),
             ("SPAM", "Spam"),
             ("TRASH", "Trash"),
             ("[Gmail]/All Mail", "All Mail"),
         ]
-        found_total = 0
+        items = []  # {folder, uid, from, subject, date}
         for fname, flabel in folders:
             try:
                 mail.select(fname)
@@ -416,20 +503,47 @@ def _imap_list_recent(limit=15):
                 if fname == "INBOX":
                     print(c("(INBOX kosong)", DIM))
                 continue
-            uids = uids[-limit:]
-            found_total += len(uids)
-            print(c(f"\n{len(uids)} pesan terakhir di {flabel}:\n", BOLD + GREEN))
-            for uid in reversed(uids):
+            for uid in reversed(uids[-limit:]):
                 brief = _imap_msg_brief(mail, uid)
                 if not brief:
                     continue
                 from_v, sub_v, date_v = brief
-                print(f"  {c('Dari   :', BOLD)} {c(from_v, CYAN)}")
-                print(f"  {c('Subjek :', BOLD)} {c(sub_v or '(tanpa subjek)', YELLOW)}")
-                print(f"  {c('Tanggal:', BOLD)} {c(date_v, DIM)}")
-                print()
-        if found_total == 0:
+                items.append({
+                    "folder": fname,
+                    "flabel": flabel,
+                    "uid": uid,
+                    "from": from_v,
+                    "subject": sub_v,
+                    "date": date_v,
+                })
+
+        if not items:
             print(c("(tidak ada pesan di INBOX/SPAM/TRASH/All Mail)", DIM))
+            return
+
+        # tampilkan daftar bernomor
+        print(c(f"\n{len(items)} pesan ditemukan:\n", BOLD + GREEN))
+        for idx, it in enumerate(items, 1):
+            print(f"  {c(str(idx).rjust(2), BOLD)}. {c(it['from'], CYAN)}")
+            print(f"      {c('Subjek :', BOLD)} {c(it['subject'] or '(tanpa subjek)', YELLOW)}")
+            print(f"      {c('Folder  :', BOLD)} {c(it['flabel'], DIM)}   {c('Tanggal:', BOLD)} {c(it['date'], DIM)}")
+        print()
+
+        # loop pilihan
+        while True:
+            try:
+                choice = input(c("Buka isi  [1-%d]  |  Kembali [0]: " % len(items), BOLD)).strip()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                return
+            if choice == "0":
+                print(c("Kembali ke menu.", DIM))
+                return
+            if choice.isdigit() and 1 <= int(choice) <= len(items):
+                _show_imap_message(mail, items[int(choice) - 1])
+                print()
+            else:
+                print(c("[ERROR] Pilih angka 1-%d untuk buka isi, atau 0 untuk kembali." % len(items), RED))
     except imaplib.IMAP4.error as e:
         _die(f"IMAP login gagal: {e}\nPeriksa Email + App Password (16 karakter tanpa spasi).")
     except Exception as e:
@@ -624,8 +738,12 @@ def cmd_check(args):
 
 
 def cmd_inbox(_args):
-    """Diagnosis: tampilkan pesan terakhir di inbox asli (IMAP langsung)."""
-    _imap_list_recent(15)
+    """Diagnosis: tampilkan 10 pesan terakhir di inbox asli (IMAP langsung).
+
+    Tampilkan daftar bernomor, lalu pilih nomor untuk membuka isi lengkap
+    (kode/link verifikasi bisa di-copy), atau 0 untuk kembali ke menu.
+    """
+    _imap_list_recent(10)
 
 
 def cmd_watch(args):
