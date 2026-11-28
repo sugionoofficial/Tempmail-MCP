@@ -237,12 +237,12 @@ def _die(msg):
     sys.exit(1)
 
 
-def _request(method, url, data=None):
+def _request(method, url, data=None, timeout=30):
     headers = {"Content-Type": "application/json"}
     body = json.dumps(data).encode() if data is not None else None
     req = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode() or "null")
     except urllib.error.HTTPError as e:
         detail = e.read().decode()
@@ -251,7 +251,7 @@ def _request(method, url, data=None):
         raise ApiError(f"Tidak bisa mencapai server: {e}\nPastikan server jalan: python -m src.main")
     except (TimeoutError, OSError) as e:
         # socket timeout / connection reset — don't crash the script
-        raise ApiError(f"Timeout/koneksi gagal: {e}\nPastikan server jalan dan respons dalam 30s.")
+        raise ApiError(f"Timeout/koneksi gagal: {e}\nPastikan server jalan dan respons dalam {timeout}s.")
 
 
 def _read_env():
@@ -628,7 +628,8 @@ def _create_alias(provider="simplelogin"):
 
 def _delete_alias(email, token, provider="simplelogin"):
     q = urllib.parse.urlencode({"token": token, "name": provider})
-    return _request("DELETE", f"{BASE}/api/email/{urllib.parse.quote(email)}?{q}")
+    # delete melibatkan IMAP cleanup di server — gunakan timeout lebih lama
+    return _request("DELETE", f"{BASE}/api/email/{urllib.parse.quote(email)}?{q}", timeout=60)
 
 
 def _fetch_messages(email, token, provider="simplelogin"):
@@ -909,6 +910,11 @@ def _sl_list_aliases():
     return []
 
 
+def _alias_still_exists(email, aliases):
+    """Cek apakah email masih ada di daftar alias."""
+    return any(a.get("email", "").lower() == email.lower() for a in aliases)
+
+
 def _delete_alias_by_index(aliases, idx, provider="simplelogin"):
     """Hapus satu alias berdasarkan indeks dalam daftar."""
     item = aliases[idx]
@@ -925,7 +931,15 @@ def _delete_alias_by_index(aliases, idx, provider="simplelogin"):
         _delete_alias(email, token, provider)
         print(c(f"✓  Alias {email} dihapus.", GREEN))
     except ApiError as e:
-        print(c(f"[ERROR] Gagal hapus {email}: {e}", RED))
+        # mungkin timeout, tapi delete sebenarnya berhasil — verifikasi
+        try:
+            current = _sl_list_aliases()
+        except Exception:
+            current = aliases
+        if _alias_still_exists(email, current):
+            print(c(f"[ERROR] Gagal hapus {email}: {e}", RED))
+        else:
+            print(c(f"✓  Alias {email} dihapus (respons timeout, tapi penghapusan berhasil).", GREEN))
 
 
 def cmd_del_menu(_args=None):
@@ -961,11 +975,21 @@ def cmd_del_menu(_args=None):
                     continue
                 deleted = 0
                 for idx in range(len(aliases)):
+                    email = aliases[idx].get("email", "")
                     try:
-                        _delete_alias(aliases[idx].get("email", ""), str(aliases[idx].get("id", "") or ""), provider)
+                        _delete_alias(email, str(aliases[idx].get("id", "") or ""), provider)
                         deleted += 1
                     except ApiError as e:
-                        print(c(f"[ERROR] Gagal hapus {aliases[idx].get('email', '?')}: {e}", RED))
+                        # verifikasi: mungkin timeout tapi delete berhasil
+                        try:
+                            current = _sl_list_aliases()
+                        except Exception:
+                            current = aliases
+                        if _alias_still_exists(email, current):
+                            print(c(f"[ERROR] Gagal hapus {email}: {e}", RED))
+                        else:
+                            deleted += 1
+                            print(c(f"✓  {email} dihapus (timeout, tapi berhasil).", GREEN))
                 print(c(f"✓  {deleted} alias dihapus.", GREEN))
                 return
             if choice.isdigit() and 1 <= int(choice) <= len(aliases):
