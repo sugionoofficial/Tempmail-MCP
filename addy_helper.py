@@ -66,7 +66,30 @@ WHITE = "\033[37m"
 _SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
 
+def _color_enabled():
+    """Cek apakah terminal mendukung ANSI escape.
+
+    Windows PowerShell 5.1 (lama) tidak render ANSI — warna akan muncul
+    sebagai teks mentah. Disable warna di situ; tetap aktif di Windows Terminal
+    (WT_SESSION) dan PowerShell 7+/Linux/Termux.
+    """
+    if os.name != "nt":
+        return True
+    # Windows Terminal atau terminal modern yang support ANSI
+    if os.environ.get("WT_SESSION"):
+        return True
+    if os.environ.get("TERM"):
+        return True
+    # PowerShell 7+ biasanya punya TERM; CMD/PowerShell 5.1 tidak
+    return False
+
+
+_COLOR_ENABLED = _color_enabled()
+
+
 def c(text, color):
+    if not _COLOR_ENABLED:
+        return text
     return f"{color}{text}{RESET}"
 
 
@@ -75,7 +98,10 @@ def spinner_frame(i):
 
 
 def clear_line():
-    sys.stdout.write("\r\033[K")
+    if _COLOR_ENABLED:
+        sys.stdout.write("\r\033[K")
+    else:
+        sys.stdout.write("\r" + " " * 60 + "\r")
     sys.stdout.flush()
 
 
@@ -89,9 +115,11 @@ def _clear_screen():
             os.system("clear")
     except OSError:
         pass
-    # fallback: ANSI erase + home
-    sys.stdout.write("\033[2J\033[H")
-    sys.stdout.flush()
+    # fallback: ANSI erase + home (skip jika terminal tidak support ANSI,
+    # misal Windows PowerShell 5.1 — cls sudah cukup)
+    if _COLOR_ENABLED:
+        sys.stdout.write("\033[2J\033[H")
+        sys.stdout.flush()
 
 
 def banner(title):
