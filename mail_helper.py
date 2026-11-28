@@ -237,6 +237,23 @@ def _die(msg):
     sys.exit(1)
 
 
+def _handle_gen_error(e):
+    """Tampilkan error generate tanpa menghentikan script (kembali ke menu)."""
+    msg = str(e)
+    clear_line()
+    if "429" in msg or "rate" in msg.lower() or "TOO MANY" in msg:
+        print(c("✗  SimpleLogin membatasi (429 rate limit) — terlalu banyak permintaan.", RED))
+        print(c("  Tunggu beberapa menit, lalu pilih Generate lagi.", YELLOW))
+        print(c("  Alias yang dibuat sebelumnya tetap aktif.", DIM))
+    elif "503" in msg:
+        print(c("✗  Server tidak bisa membuat alias (503).", RED))
+        print(c("  Pastikan server jalan: python -m src.main", YELLOW))
+        print(c("  Jika 429: tunggu beberapa menit lalu coba lagi.", DIM))
+    else:
+        print(c(f"✗  Gagal membuat alias: {msg}", RED))
+    # kembali ke menu (tidak exit)
+
+
 def _request(method, url, data=None, timeout=30):
     headers = {"Content-Type": "application/json"}
     body = json.dumps(data).encode() if data is not None else None
@@ -742,8 +759,7 @@ def cmd_gen(args):
         print(f"  python mail_helper.py check {email} {token} --mode {mode}")
         print(f"  python mail_helper.py watch {email} {token} --mode {mode}")
     except ApiError as e:
-        clear_line()
-        _die(str(e))
+        _handle_gen_error(e)
 
 
 def cmd_run(args):
@@ -803,8 +819,7 @@ def cmd_run(args):
         print(c(f"✗  [Timeout] Tidak ada pesan dalam {args.timeout}s.", YELLOW))
         print(c(f"Coba cek manual: python mail_helper.py check {email} {token} --mode {mode}", DIM))
     except ApiError as e:
-        clear_line()
-        _die(str(e))
+        _handle_gen_error(e)
 
 
 def cmd_check(args):

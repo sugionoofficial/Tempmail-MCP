@@ -125,16 +125,63 @@ class SimpleLoginProvider(EmailProvider):
         }
 
     async def _create_alias_remote(self) -> tuple[str, str]:
-        """Create a random alias on SimpleLogin. Returns (email, alias_id)."""
-        # POST /api/alias/random/new  (hostname/mode optional)
-        resp = await self._client.post(
-            "/alias/random/new",
-            params={"mode": "uuid"},
-            json={"note": "tempmail-mcp"},
-            headers=self._headers(),
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        """Create a random alias on SimpleLogin. Returns (email, alias_id).
+
+        Retries on HTTP 429 (rate limit) with exponential backoff —
+        SimpleLogin limits alias-creation frequency, so a brief wait and
+        retry usually succeeds instead of failing outright.
+        """
+        last_exc: Optional[Exception] = None
+        for attempt in range(4):  # up to 4 attempts
+            try:
+                resp = await self._client.post(
+                    "/alias/random/new",
+                    params={"mode": "uuid"},
+                    json={"note": "tempmail-mcp"},
+                    headers=self._headers(),
+                )
+                if resp.status_code == 429:
+                    # rate limited — backoff and retry
+                    wait = 5 * (2 ** attempt)  # 5, 10, 20, 40s
+                    log.warning(
+                        "SimpleLogin 429 rate-limited; retry %d in %ds",
+                        attempt + 1, wait,
+                    )
+                    await asyncio.sleep(wait)
+                    last_exc = httpx.HTTPStatusError(
+                        "429 rate limit",
+                        request=resp.request,
+                        response=resp,
+                    )
+                    continue
+                resp.raise_for_status()
+                data = resp.json()
+                break
+            except httpx.HTTPStatusError as e:
+                # non-429 HTTP error — don't retry
+                if e.response.status_code != 429:
+                    raise
+                wait = 5 * (2 ** attempt)
+                log.warning(
+                    "SimpleLogin 429 rate-limited; retry %d in %ds",
+                    attempt + 1, wait,
+                )
+                await asyncio.sleep(wait)
+                last_exc = e
+                continue
+            except httpx.HTTPError as e:
+                # network error — retry with backoff
+                wait = 5 * (2 ** attempt)
+                log.warning(
+                    "SimpleLogin request failed (%s); retry %d in %ds",
+                    e, attempt + 1, wait,
+                )
+                await asyncio.sleep(wait)
+                last_exc = e
+                continue
+        else:
+            # all attempts exhausted
+            raise last_exc if last_exc else ValueError("SimpleLogin create failed after retries")
 
         # The response shape varies across SimpleLogin versions:
         #   - {"alias": "email@sl.lan"}            (alias is a string)
